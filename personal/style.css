@@ -86,3 +86,4 @@ dialog a { color:#8ab4f8; }
 @media (max-width: 560px) {
   .op-progress b { font-size: 1.15rem; }
 }
+.op-banner { background: #2d4a2d; border: 1px solid var(--accent); border-radius: 8px; padding: 10px 12px; margin: 0 0 12px; font-size: .9rem; line-height: 1.4; }

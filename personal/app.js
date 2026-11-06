@@ -1,13 +1,13 @@
 import { Chess } from "./vendor/chess.js";
 import { CONFIG } from "./config.js";
-import { scoreGuess, dayNumber, puzzleIndex, emojiGrid } from "./logic.js";
+import { scoreGuess, dayNumber, puzzleIndex, emojiGrid, shouldApplyStart } from "./logic.js";
 import { enterOpenings, leaveOpenings, openingsActive, wireOpeningsEvents } from "./openings/ui.js";
 
 const $ = (s) => document.querySelector(s);
 const FILES = "abcdefgh";
 const store = {
   get: (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } },
-  set: (k, v) => localStorage.setItem(k, JSON.stringify(v)),
+  set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } },
 };
 
 let modeKey, mode, size, puzzle, day, todayNum, isToday;
@@ -23,31 +23,41 @@ async function loadPuzzles(n) {
   return cache[n];
 }
 
+let startGen = 0; // increments on every start(); stale awaits must not mutate DOM
+
 async function start() {
+  const runId = ++startGen;
   const hash = location.hash.slice(1);
-  renderTabs();
+  renderTabs(); // highlight follows URL hash immediately (not last-applied modeKey)
   if (hash === CONFIG.openings.hash) {
-    // Openings tab — do not touch puzzle localStorage keys
+    // Invalidate any in-flight puzzle fetch
+    startGen++; // ensure older awaits fail shouldApplyStart
     enterOpenings();
     return;
   }
   if (openingsActive()) leaveOpenings();
-  modeKey = (hash in CONFIG.modes) ? hash : CONFIG.defaultMode;
+  const requested = (hash in CONFIG.modes) ? hash : CONFIG.defaultMode;
+  modeKey = requested;
   mode = CONFIG.modes[modeKey]; size = mode.size;
   todayNum = dayNumber(new Date(), CONFIG.startDate);
   const q = new URLSearchParams(location.search).get("day");
   day = (CONFIG.allowDayOverride && q && +q >= 1) ? +q : Math.max(1, todayNum);
   isToday = day === Math.max(1, todayNum);
   const list = await loadPuzzles(size);
+  if (!shouldApplyStart(runId, startGen, requested, location.hash.slice(1), CONFIG.modes, CONFIG.defaultMode, CONFIG.openings.hash)) {
+    return; // superseded by a newer tab / openings
+  }
+  modeKey = requested;
+  mode = CONFIG.modes[modeKey]; size = mode.size;
   puzzle = list[puzzleIndex(day, list.length)];
   st = store.get(stateKey(), null);
   if (!st || st.id !== puzzle.id) st = { id: puzzle.id, guesses: [], results: [], done: false, won: false };
   resetRow();
   replayPly = puzzle.moves.length;
-  // Ensure puzzle chrome visible after leaving openings
   const grid = $("#grid"); if (grid) grid.hidden = false;
   const chrome = $("#puzzleChrome"); if (chrome) chrome.classList.remove("hidden");
   const op = $("#openingsPanel"); if (op) op.classList.add("hidden");
+  renderTabs();
   render();
 }
 const stateKey = () => `boardle:${modeKey}:day${day}`;
@@ -269,8 +279,10 @@ function openStats() {
 function renderTabs() {
   const hash = location.hash.slice(1);
   const onOpenings = hash === CONFIG.openings.hash;
+  // Highlight from the URL so rapid switches never show a mismatched "on" tab
+  const activeMode = onOpenings ? null : ((hash in CONFIG.modes) ? hash : CONFIG.defaultMode);
   const modeLinks = Object.entries(CONFIG.modes).map(([k, m]) =>
-    `<a href="#${k}" class="${!onOpenings && k === modeKey ? "on" : ""}">${m.label}<small>${m.size}×${m.size}</small></a>`).join("");
+    `<a href="#${k}" class="${k === activeMode ? "on" : ""}">${m.label}<small>${m.size}×${m.size}</small></a>`).join("");
   const op = CONFIG.openings;
   const opLink = `<a href="#${op.hash}" class="${onOpenings ? "on" : ""}">${op.label}<small>learn</small></a>`;
   $("#tabs").innerHTML = modeLinks + opLink;
@@ -312,5 +324,10 @@ window.addEventListener("keydown", (e) => {
 });
 window.addEventListener("hashchange", start);
 wireOpeningsEvents();
-if (!localStorage.getItem("boardle:seenHelp")) { localStorage.setItem("boardle:seenHelp", "1"); $("#help").showModal(); }
+const initialHash = location.hash.slice(1);
+if (!localStorage.getItem("boardle:seenHelp")) {
+  localStorage.setItem("boardle:seenHelp", "1");
+  // Don't block a deep-link straight into Openings with the puzzle help dialog
+  if (initialHash !== CONFIG.openings.hash) $("#help").showModal();
+}
 start();

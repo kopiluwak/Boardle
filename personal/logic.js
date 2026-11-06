@@ -45,3 +45,13 @@ export function emojiGrid(results, size) {
   }
   return rows.join("\n");
 }
+
+
+/** Guard async puzzle start(): drop stale fetches after rapid tab switches. */
+export function shouldApplyStart(runId, latestId, requestedModeKey, currentHash, modes, defaultMode, openingsHash = "openings") {
+  if (runId !== latestId) return false;
+  const hash = currentHash || "";
+  if (hash === openingsHash) return false;
+  const expected = (hash in modes) ? hash : defaultMode;
+  return requestedModeKey === expected;
+}

@@ -2,11 +2,11 @@
 import { Chess } from "../vendor/chess.js";
 import { LESSONS, lessonById } from "./data.js";
 import {
-  buildSteps, learnerCards, gradeAttempt, LEARN_PHASES, nextLearnPhase,
+  buildSteps, learnerCards, gradeAttempt,
   advancePastThem, progressSummary,
 } from "./trainer.js";
 import {
-  makeCard, reviewCard, isDue, pickSession, dueCount,
+  makeCard, reviewCard, noteExposure, pickSession, dueCount,
 } from "./schedule.js";
 
 const FILES = "abcdefgh";
@@ -14,7 +14,10 @@ const $ = (s, root = document) => root.querySelector(s);
 
 const store = {
   get: (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } },
-  set: (k, v) => localStorage.setItem(k, JSON.stringify(v)),
+  set: (k, v) => {
+    try { localStorage.setItem(k, JSON.stringify(v)); return true; }
+    catch { return false; }
+  },
 };
 
 const CARDS_KEY = "boardle:openings:cards";
@@ -24,17 +27,29 @@ let active = false;
 let lesson = null;
 let steps = [];
 let mode = "catalog"; // catalog | learn | practice
-let learnIdx = 0;     // index into steps
-let learnPhase = "show";
+let learnIdx = 0;
+let learnPhase = "show"; // show | hint | recall
 let practiceQueue = [];
 let practiceStep = null;
+let practiceMixed = false;
+let practiceReveal = false; // waiting for Next after grade/show-answer
+let practiceRevealTimer = null;
+let practiceSessionId = 0;
 let fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 let game = new Chess();
 let selected = null;
 let pendingPromo = null;
 let drag = null;
 let feedback = "";
+let banner = ""; // catalog completion / session messages
 let orientationColor = "w";
+
+function clearPracticeTimer() {
+  if (practiceRevealTimer != null) {
+    clearTimeout(practiceRevealTimer);
+    practiceRevealTimer = null;
+  }
+}
 
 function cardsMap() {
   return store.get(CARDS_KEY, {});
@@ -63,6 +78,12 @@ function setFen(f) {
   selected = null;
 }
 
+function lessonTitleForStep(step) {
+  if (!step) return "Mixed";
+  const L = lessonById(step.lessonId);
+  return L ? L.title : (lesson?.title || "Mixed");
+}
+
 function squaresInOrder() {
   const out = [];
   for (let r = 0; r < 8; r++) for (let f = 0; f < 8; f++) {
@@ -79,7 +100,8 @@ function renderBoard() {
   el.innerHTML = "";
   const hist = game.history({ verbose: true });
   const lastMv = hist.length ? hist[hist.length - 1] : null;
-  const targets = selected ? game.moves({ square: selected, verbose: true }).map((m) => m.to) : [];
+  const targets = (!practiceReveal && selected)
+    ? game.moves({ square: selected, verbose: true }).map((m) => m.to) : [];
   squaresInOrder().forEach((sq, i) => {
     const d = document.createElement("div");
     const fileIdx = FILES.indexOf(sq[0]), rank = +sq[1];
@@ -103,7 +125,8 @@ function renderBoard() {
 }
 
 function showPromo(from, to) {
-  const box = $("#promo"); box.innerHTML = ""; box.hidden = false;
+  const box = $("#promo"); if (!box) return;
+  box.innerHTML = ""; box.hidden = false;
   for (const t of ["q", "r", "b", "n"]) {
     const b = document.createElement("button");
     b.innerHTML = `<img src="pieces/${game.turn()}${t.toUpperCase()}.svg" alt="${t}">`;
@@ -116,6 +139,7 @@ function showPromo(from, to) {
 }
 
 function tryUserMove(from, to) {
+  if (practiceReveal) return false;
   const legal = game.moves({ square: from, verbose: true }).filter((m) => m.to === to);
   if (!legal.length) return false;
   if (legal.some((m) => m.promotion)) { pendingPromo = { from, to }; showPromo(from, to); return true; }
@@ -137,41 +161,62 @@ function currentUsStep() {
   return practiceStep;
 }
 
+/** Advance learn line after a resolved "us" step; set show-phase afterFen for next us move. */
+function advanceLearnAfterUs(step) {
+  const adv = advancePastThem(steps, step.index, step.afterFen);
+  learnIdx = adv.nextIndex;
+  learnPhase = "show";
+  if (learnIdx >= steps.length) {
+    banner = `Finished ${lesson.title}. Use Recall to lock moves in (spaced reviews are separate from Learn walkthroughs).`;
+    feedback = banner;
+    mode = "catalog";
+    store.set(META_KEY, { ...(store.get(META_KEY, {})), lastLesson: lesson.id, lastFinished: Date.now() });
+    setFen(new Chess().fen());
+    orientationColor = "w";
+    return;
+  }
+  // Preview next learner move in show phase
+  if (steps[learnIdx]?.by === "us") setFen(steps[learnIdx].afterFen);
+  else setFen(adv.fen);
+}
+
 function onLearnMove(mv) {
-  const step = currentUserStep();
+  const step = currentUsStep();
+  // Only accept board input during hint/recall — never during show
   if (!step || learnPhase === "show") return false;
   const g = new Chess(step.beforeFen);
   let m = null;
   try { m = g.move(mv); } catch { m = null; }
   if (!m) { feedback = "Illegal move — try again."; render(); return false; }
   const grade = gradeAttempt(step, m.san);
+  const all = ensureCardsFor(lesson);
+  const prev = all[step.cardId] || makeCard(step.cardId);
+
   if (!grade.ok) {
+    // Lapse always recorded (wrong attempt)
+    saveCard(reviewCard(prev, false));
     feedback = `Not quite. ${hintText(step)}`;
     setFen(step.beforeFen);
     render();
     return false;
   }
-  const all = ensureCardsFor(lesson);
-  saveCard(reviewCard(all[step.cardId] || makeCard(step.cardId), true));
-  const afterUs = new Chess(step.beforeFen);
-  afterUs.move(m.san);
-  const adv = advancePastThem(steps, step.index, afterUs.fen());
-  setFen(adv.fen);
-  learnIdx = adv.nextIndex;
-  learnPhase = "show";
-  feedback = `Nice — ${m.san}. ${step.idea}`;
-  if (learnIdx >= steps.length) {
-    feedback += " Lesson complete! Try Recall to lock it in.";
-    mode = "catalog";
-    store.set(META_KEY, { ...(store.get(META_KEY, {})), lastLesson: lesson.id, lastFinished: Date.now() });
-  } else if (steps[learnIdx] && steps[learnIdx].by === "us") {
-    setFen(steps[learnIdx].afterFen);
+
+  if (learnPhase === "recall") {
+    // Graded unassisted recall — only this advances spaced mastery
+    saveCard(reviewCard(prev, true));
+    feedback = `Nice — ${m.san}. ${step.idea}`;
+  } else {
+    // hint (or other guided) success: exposure only, no level inflation
+    saveCard(noteExposure(prev));
+    feedback = `Got it with guidance — ${m.san}. Recall later for spaced credit. ${step.idea}`;
   }
+  advanceLearnAfterUs(step);
   render();
   return true;
 }
 
 function onPracticeMove(mv) {
+  if (practiceReveal) return false;
   const step = practiceStep;
   if (!step) return false;
   const g = new Chess(step.beforeFen);
@@ -181,44 +226,61 @@ function onPracticeMove(mv) {
   const grade = gradeAttempt(step, m.san);
   const all = cardsMap();
   const prev = all[step.cardId] || makeCard(step.cardId);
-  const card = reviewCard(prev, grade.ok);
-  saveCard(card);
+  saveCard(reviewCard(prev, grade.ok));
+  practiceReveal = true;
   if (grade.ok) {
     feedback = `Correct: ${m.san}. ${step.idea}`;
     setFen(step.afterFen);
   } else {
     feedback = `Expected ${step.san}. ${step.idea}`;
-    setFen(step.beforeFen);
-  }
-  // next card
-  practiceQueue.shift();
-  practiceStep = null;
-  if (practiceQueue.length) {
-    startPracticeCard(practiceQueue[0]);
-  } else {
-    feedback += " Session finished.";
-    mode = "catalog";
+    setFen(step.afterFen); // show the correct result board
   }
   render();
   return true;
 }
 
+function practiceNext() {
+  if (mode !== "practice" || !practiceReveal) return;
+  clearPracticeTimer();
+  practiceReveal = false;
+  practiceQueue.shift();
+  practiceStep = null;
+  if (practiceQueue.length) {
+    startPracticeCard(practiceQueue[0]);
+    feedback = "";
+  } else {
+    banner = "Recall session finished.";
+    feedback = banner;
+    mode = "catalog";
+    setFen(new Chess().fen());
+    orientationColor = "w";
+  }
+  render();
+}
+
 function startPracticeCard(step) {
   practiceStep = step;
+  practiceReveal = false;
+  clearPracticeTimer();
   setFen(step.beforeFen);
   orientationColor = step.beforeFen.split(" ")[1];
   selected = null;
+  // Keep lesson pointer aligned with current card for labels
+  if (step.lessonId) {
+    const L = lessonById(step.lessonId);
+    if (L) lesson = L;
+  }
 }
 
 function sqFromPoint(x, y) {
-  const el = document.elementFromPoint(x, y);
-  return el && el.closest(".sq") ? el.closest(".sq").dataset.sq : null;
+  const el = document.elementFromPoint?.(x, y);
+  return el && el.closest?.(".sq") ? el.closest(".sq").dataset.sq : null;
 }
 
 function onPointerDown(e) {
   if (!active || (mode !== "learn" && mode !== "practice")) return;
   if (mode === "learn" && learnPhase === "show") return;
-  if (pendingPromo) return;
+  if (practiceReveal || pendingPromo) return;
   const sq = sqFromPoint(e.clientX, e.clientY); if (!sq) return;
   const p = game.get(sq);
   if (selected && selected !== sq && (!p || p.color !== game.turn())) {
@@ -247,11 +309,15 @@ function onPointerMove(e) { if (drag) { drag.moved = true; moveGhost(e); } }
 function onPointerUp(e) {
   if (!drag) return;
   const { from, ghost } = drag; drag = null; ghost.remove();
+  if (practiceReveal) { renderBoard(); return; }
   const sq = sqFromPoint(e.clientX, e.clientY);
   if (sq && sq !== from) { if (!tryUserMove(from, sq)) renderBoard(); } else renderBoard();
 }
 
 function startLearn(id) {
+  clearPracticeTimer();
+  practiceReveal = false;
+  practiceSessionId += 1;
   lesson = lessonById(id);
   if (!lesson) return;
   ensureCardsFor(lesson);
@@ -260,12 +326,11 @@ function startLearn(id) {
   learnIdx = 0;
   learnPhase = "show";
   feedback = "";
-  // play out leading "them" moves if any (Black lessons)
+  banner = "";
   setFen(new Chess().fen());
   orientationColor = lesson.side === "black" ? "b" : "w";
   while (learnIdx < steps.length && steps[learnIdx].by === "them") {
-    const s = steps[learnIdx];
-    setFen(s.afterFen);
+    setFen(steps[learnIdx].afterFen);
     learnIdx++;
   }
   if (learnIdx < steps.length) setFen(steps[learnIdx].afterFen);
@@ -273,17 +338,20 @@ function startLearn(id) {
 }
 
 function startPractice(id) {
+  clearPracticeTimer();
+  practiceReveal = false;
+  practiceSessionId += 1;
+  const session = practiceSessionId;
   const L = id ? lessonById(id) : null;
+  practiceMixed = !L;
   const poolLessons = L ? [L] : LESSONS;
-  const allCards = cardsMap();
   const stepsPool = [];
   for (const les of poolLessons) {
     ensureCardsFor(les);
     for (const st of learnerCards(les)) stepsPool.push(st);
   }
-  const cards = stepsPool.map((st) => allCards[st.cardId] || makeCard(st.cardId));
-  // ensure saved
   const map = cardsMap();
+  const cards = stepsPool.map((st) => map[st.cardId] || makeCard(st.cardId));
   for (const c of cards) if (!map[c.id]) map[c.id] = c;
   store.set(CARDS_KEY, map);
 
@@ -291,14 +359,15 @@ function startPractice(id) {
   const byId = Object.fromEntries(stepsPool.map((s) => [s.cardId, s]));
   practiceQueue = sessionCards.map((c) => byId[c.id]).filter(Boolean);
   if (!practiceQueue.length) {
-    // bootstrap: take first few learner moves
     practiceQueue = stepsPool.slice(0, Math.min(8, stepsPool.length));
   }
+  if (session !== practiceSessionId) return; // superseded
   mode = "practice";
-  lesson = L || poolLessons[0];
+  lesson = L || (practiceQueue[0] ? lessonById(practiceQueue[0].lessonId) : poolLessons[0]);
   steps = lesson ? buildSteps(lesson) : [];
   feedback = `${practiceQueue.length} positions in this session.`;
-  startPracticeCard(practiceQueue[0]);
+  banner = "";
+  if (practiceQueue[0]) startPracticeCard(practiceQueue[0]);
   render();
 }
 
@@ -306,7 +375,6 @@ function learnContinue() {
   const step = currentUsStep();
   if (!step) return;
   if (learnPhase === "show") {
-    // show the move on the board briefly by playing it, then undo for hint/recall
     learnPhase = "hint";
     feedback = `Your move. Hint: ${hintText(step)}`;
     setFen(step.beforeFen);
@@ -315,7 +383,7 @@ function learnContinue() {
   }
   if (learnPhase === "hint") {
     learnPhase = "recall";
-    feedback = "Play the move from memory.";
+    feedback = "Play the move from memory (counts for spaced review).";
     setFen(step.beforeFen);
     render();
   }
@@ -329,32 +397,41 @@ function hintText(step) {
 function showAnswer() {
   const step = currentUsStep();
   if (!step) return;
+  if (mode === "practice" && practiceReveal) return; // already revealing
+
   feedback = `Answer: ${step.san}. ${step.idea}`;
   setFen(step.afterFen);
+
   if (mode === "practice") {
     const all = cardsMap();
-    const card = reviewCard(all[step.cardId] || makeCard(step.cardId), false);
-    saveCard(card);
-    practiceQueue.shift();
-    setTimeout(() => {
-      if (practiceQueue.length) startPracticeCard(practiceQueue[0]);
-      else { mode = "catalog"; feedback += " Session finished."; }
-      render();
-    }, 600);
-  } else if (mode === "learn") {
-    // treat as failed recall then advance with them moves
+    saveCard(reviewCard(all[step.cardId] || makeCard(step.cardId), false));
+    practiceReveal = true;
+    clearPracticeTimer();
+    // No auto-advance — user taps Next (guards tab/lesson races)
+    render();
+    return;
+  }
+
+  if (mode === "learn") {
+    // Revealing answer is guided, not graded success — record lapse so it stays due
     const all = ensureCardsFor(lesson);
     saveCard(reviewCard(all[step.cardId] || makeCard(step.cardId), false));
-    const afterUs = step.afterFen;
-    const adv = advancePastThem(steps, step.index, afterUs);
-    setFen(adv.fen);
-    learnIdx = adv.nextIndex;
-    learnPhase = "show";
-    if (learnIdx >= steps.length) {
-      mode = "catalog";
-      feedback += " Lesson finished — review with Recall.";
+    advanceLearnAfterUs(step);
+    if (mode === "learn" && steps[learnIdx]) {
+      feedback = `Answer was ${step.san}. Next: study the shown move.`;
     }
+    render();
   }
+}
+
+function goCatalog(opts = {}) {
+  clearPracticeTimer();
+  practiceReveal = false;
+  practiceSessionId += 1;
+  mode = "catalog";
+  if (opts.clearFeedback) feedback = "";
+  setFen(new Chess().fen());
+  orientationColor = "w";
   render();
 }
 
@@ -371,14 +448,16 @@ function renderCatalog() {
       <span class="op-meta">${n} key moves · ${l.side}</span>
     </button>`;
   };
+  const note = banner || feedback;
   return `
+    ${note ? `<div class="op-banner" role="status">${note}</div>` : ""}
     <div class="op-progress">
       <div><b>${prog.seen}</b><span>Seen</span></div>
       <div><b>${prog.mastered}</b><span>Comfortable</span></div>
       <div><b>${due}</b><span>Due</span></div>
       <div><b>${prog.total}</b><span>Total</span></div>
     </div>
-    <p class="op-lead">Beginner repertoires with ideas — Learn walks you through; Recall quizzes due moves (stored separately from puzzle stats).</p>
+    <p class="op-lead">Beginner repertoires with ideas — Learn walks you through (no mastery inflate); Recall quizzes due moves for spaced credit. Stored separately from puzzle stats.</p>
     <div class="op-actions">
       <button type="button" class="primary" id="opPracticeAll">Recall due (${due})</button>
     </div>
@@ -400,11 +479,13 @@ function renderLearnPanel() {
     </div>
     <h3 class="op-h">${lesson.title}</h3>
     <p class="muted">${lesson.goal}</p>
-    <p class="op-phase">Learn · step ${Math.min(doneUs + 1, totalUs)}/${totalUs} · <b>${learnPhase}</b></p>
+    <p class="op-phase">Learn · step ${Math.min(doneUs + 1, totalUs)}/${totalUs} · <b>${learnPhase}</b>
+      ${learnPhase === "recall" ? "· graded" : "· guided (no mastery credit)"}</p>
     <div class="op-idea">${step ? (learnPhase === "show" ? `<b>${step.san}</b> — ${step.idea}` : step.idea) : "Done."}</div>
     <div class="op-actions">
       ${learnPhase === "show" ? `<button type="button" class="primary" id="opContinue">Got it — hide move</button>` : ""}
-      ${learnPhase === "hint" ? `<button type="button" class="primary" id="opContinue">Ready to try</button>` : ""}
+      ${learnPhase === "hint" ? `<button type="button" class="primary" id="opContinue">Ready to try (ungraded)</button>` : ""}
+      ${learnPhase === "recall" ? `<span class="muted">Play from memory on the board</span>` : ""}
       ${learnPhase !== "show" ? `<button type="button" id="opShowAns">Show answer</button>` : ""}
     </div>
     <p class="op-feedback">${feedback}</p>
@@ -414,16 +495,23 @@ function renderLearnPanel() {
 function renderPracticePanel() {
   const step = practiceStep;
   const left = practiceQueue.length;
+  const title = practiceMixed
+    ? (step ? lessonTitleForStep(step) : "Mixed due moves")
+    : (lesson ? lesson.title : "Recall");
+  const mixNote = practiceMixed ? "Mixed" : title;
   return `
     <div class="op-toolbar">
-      <button type="button" id="opBack">← Lessons</button>
+      <button type="button" id="opBack" ${practiceReveal ? "" : ""}>← Lessons</button>
     </div>
     <h3 class="op-h">Recall practice</h3>
-    <p class="muted">${lesson ? lesson.title : "Mixed"} · ${left} left in session</p>
-    <div class="op-idea">${step ? "Find the repertoire move for the side to move." : ""}</div>
+    <p class="muted">${practiceMixed ? `Mixed · now: ${title}` : title} · ${left} left in session
+      ${practiceReveal ? " · revealing" : ""}</p>
+    <div class="op-idea">${step && !practiceReveal ? "Find the repertoire move for the side to move." : (step ? `<b>${step.san}</b> — ${step.idea}` : "")}</div>
     <div class="op-actions">
-      <button type="button" id="opShowAns">Show answer</button>
-      <button type="button" id="opHint">Hint</button>
+      ${practiceReveal
+        ? `<button type="button" class="primary" id="opPracticeNext">Next</button>`
+        : `<button type="button" id="opShowAns">Show answer</button>
+           <button type="button" id="opHint">Hint</button>`}
     </div>
     <p class="op-feedback">${feedback}</p>
   `;
@@ -436,13 +524,11 @@ function render() {
   else if (mode === "learn") panel.innerHTML = renderLearnPanel();
   else panel.innerHTML = renderPracticePanel();
 
-  // wire buttons
   panel.querySelectorAll(".op-card").forEach((btn) => {
     btn.onclick = () => {
       const id = btn.dataset.id;
       panel.querySelectorAll(".op-card").forEach((b) => b.classList.remove("pick"));
       btn.classList.add("pick");
-      // dual action row
       const existing = panel.querySelector(".op-pick-actions");
       if (existing) existing.remove();
       const row = document.createElement("div");
@@ -455,13 +541,23 @@ function render() {
     };
   });
   const pa = $("#opPracticeAll"); if (pa) pa.onclick = () => startPractice(null);
-  const back = $("#opBack"); if (back) back.onclick = () => { mode = "catalog"; feedback = ""; setFen(new Chess().fen()); orientationColor = "w"; render(); };
+  const back = $("#opBack"); if (back) back.onclick = () => goCatalog({ clearFeedback: !banner });
   const cont = $("#opContinue"); if (cont) cont.onclick = learnContinue;
-  const show = $("#opShowAns"); if (show) show.onclick = showAnswer;
-  const hint = $("#opHint"); if (hint) hint.onclick = () => {
-    const step = currentUsStep();
-    if (step) { feedback = hintText(step); render(); }
-  };
+  const show = $("#opShowAns");
+  if (show) {
+    show.disabled = !!practiceReveal;
+    show.onclick = showAnswer;
+  }
+  const next = $("#opPracticeNext"); if (next) next.onclick = practiceNext;
+  const hint = $("#opHint");
+  if (hint) {
+    hint.disabled = !!practiceReveal;
+    hint.onclick = () => {
+      if (practiceReveal) return;
+      const step = currentUsStep();
+      if (step) { feedback = hintText(step); render(); }
+    };
+  }
   const pr1 = $("#opPracticeOne"); if (pr1) pr1.onclick = () => startPractice(lesson.id);
 
   renderBoard();
@@ -469,7 +565,7 @@ function render() {
   if (info) {
     if (mode === "catalog") info.textContent = "Openings · pick a lesson to Learn, or Recall due moves";
     else if (mode === "learn") info.textContent = `Openings · Learn · ${lesson?.title || ""} · phase ${learnPhase}`;
-    else info.textContent = `Openings · Recall · ${practiceQueue.length} remaining`;
+    else info.textContent = `Openings · Recall · ${lessonTitleForStep(practiceStep)} · ${practiceQueue.length} remaining`;
   }
 }
 
@@ -477,41 +573,67 @@ function onKey(e) {
   if (!active) return;
   if (document.querySelector("dialog[open]")) return;
   if (e.key === "Enter" && mode === "learn" && learnPhase === "show") learnContinue();
+  if (e.key === "Enter" && mode === "practice" && practiceReveal) practiceNext();
 }
 
 export function openingsActive() { return active; }
 
 export function enterOpenings() {
+  clearPracticeTimer();
+  practiceReveal = false;
   active = true;
   mode = "catalog";
-  feedback = "";
+  // Keep banner if returning mid-session message; clear transient feedback only when empty banner
+  if (!banner) feedback = "";
   lesson = null;
   setFen(new Chess().fen());
   orientationColor = "w";
   $("#puzzleChrome")?.classList.add("hidden");
   $("#openingsPanel")?.classList.remove("hidden");
-  $("#controls").hidden = true;
-  $("#replay").hidden = true;
-  $("#solution").hidden = true;
-  $("#grid").hidden = true;
+  const controls = $("#controls"); if (controls) controls.hidden = true;
+  const replay = $("#replay"); if (replay) replay.hidden = true;
+  const solution = $("#solution"); if (solution) solution.hidden = true;
+  const grid = $("#grid"); if (grid) grid.hidden = true;
   render();
 }
 
 export function leaveOpenings() {
+  clearPracticeTimer();
+  practiceReveal = false;
+  practiceSessionId += 1;
   active = false;
   $("#puzzleChrome")?.classList.remove("hidden");
   $("#openingsPanel")?.classList.add("hidden");
-  $("#grid").hidden = false;
+  const grid = $("#grid"); if (grid) grid.hidden = false;
 }
 
 export function wireOpeningsEvents() {
-  $("#board").addEventListener("pointerdown", (e) => { if (active) onPointerDown(e); });
+  const board = $("#board");
+  if (board) board.addEventListener("pointerdown", (e) => { if (active) onPointerDown(e); });
   window.addEventListener("pointermove", (e) => { if (active) onPointerMove(e); });
   window.addEventListener("pointerup", (e) => { if (active) onPointerUp(e); });
   window.addEventListener("keydown", onKey);
 }
 
-// test seams
+// test seams (DOM-mock / unit)
 export const _test = {
-  CARDS_KEY, META_KEY, startLearn, startPractice, cardsMap, ensureCardsFor,
+  CARDS_KEY, META_KEY, store,
+  getState: () => ({
+    active, mode, learnIdx, learnPhase, practiceReveal, practiceSessionId,
+    practiceQueue: [...practiceQueue], practiceStep, practiceMixed, feedback, banner,
+    lessonId: lesson?.id || null, fen, orientationColor,
+  }),
+  setState: ( partial ) => {
+    if ("mode" in partial) mode = partial.mode;
+    if ("learnPhase" in partial) learnPhase = partial.learnPhase;
+    if ("learnIdx" in partial) learnIdx = partial.learnIdx;
+    if ("feedback" in partial) feedback = partial.feedback;
+    if ("banner" in partial) banner = partial.banner;
+    if ("practiceReveal" in partial) practiceReveal = partial.practiceReveal;
+    if ("active" in partial) active = partial.active;
+  },
+  startLearn, startPractice, showAnswer, practiceNext, learnContinue,
+  onLearnMove, onPracticeMove, currentUsStep, goCatalog,
+  cardsMap, ensureCardsFor, clearPracticeTimer, advanceLearnAfterUs,
+  commitUserMove, render, enterOpenings, leaveOpenings,
 };

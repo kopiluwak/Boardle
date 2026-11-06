@@ -37,6 +37,19 @@ export function reviewCard(card, wasCorrect, now = Date.now()) {
   return next;
 }
 
+/**
+ * Mark that the learner saw/played a move during guided Learn (show/hint).
+ * Does NOT advance spaced level or clear due pressure — mastery comes from Recall / unassisted recall only.
+ */
+export function noteExposure(card, now = Date.now()) {
+  return {
+    ...card,
+    exposed: (card.exposed || 0) + 1,
+    last: now,
+    // keep level/due/seen/correct/wrong unchanged
+  };
+}
+
 export function isDue(card, now = Date.now()) {
   return (card.due ?? 0) <= now;
 }
