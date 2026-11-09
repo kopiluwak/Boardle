@@ -9,9 +9,12 @@
 </head>
 <body>
   <header>
-    <button id="helpBtn" class="icon" title="How to play">?</button>
+    <div class="header-actions">
+      <button id="helpBtn" class="icon" title="How to play" aria-label="How to play">?</button>
+      <button id="settingsBtn" class="icon" title="Board settings" aria-label="Board settings">⚙</button>
+    </div>
     <h1>Boardle</h1>
-    <button id="statsBtn" class="icon" title="Statistics">📊</button>
+    <button id="statsBtn" class="icon" title="Statistics" aria-label="Statistics">📊</button>
   </header>
   <nav id="tabs"></nav>
   <p id="info"></p>
@@ -64,6 +67,27 @@
     <button class="close">✕</button>
     <h3>Statistics</h3>
     <div id="statsBody"></div>
+  </dialog>
+
+  <dialog id="settings">
+    <button class="close">✕</button>
+    <h3>Board settings</h3>
+    <p class="muted">Larger board uses more of your screen. Colors apply to every tab (including Openings) and save on this device.</p>
+    <div class="set-row">
+      <div class="set-field">
+        <label for="setLight">Light squares</label>
+        <input type="color" id="setLight" value="#ffffff">
+      </div>
+      <div class="set-field">
+        <label for="setDark">Dark squares</label>
+        <input type="color" id="setDark" value="#4b9cd3">
+      </div>
+    </div>
+    <h4>Presets</h4>
+    <div id="setPresets"></div>
+    <div class="set-actions">
+      <button type="button" id="setReset">Reset to Carolina blue / white</button>
+    </div>
   </dialog>
 
   <script type="module" src="app.js"></script>

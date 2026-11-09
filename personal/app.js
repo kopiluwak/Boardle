@@ -2,6 +2,7 @@ import { Chess } from "./vendor/chess.js";
 import { CONFIG } from "./config.js";
 import { scoreGuess, dayNumber, puzzleIndex, emojiGrid, shouldApplyStart } from "./logic.js";
 import { enterOpenings, leaveOpenings, openingsActive, wireOpeningsEvents } from "./openings/ui.js";
+import { wireSettingsUI } from "./settings.js";
 
 const $ = (s) => document.querySelector(s);
 const FILES = "abcdefgh";
@@ -313,6 +314,7 @@ $("#prevBtn").onclick = () => { replayPly = Math.max(0, replayPly - 1); render()
 $("#nextBtn").onclick = () => { replayPly = Math.min(puzzle.moves.length, replayPly + 1); render(); };
 $("#helpBtn").onclick = () => $("#help").showModal();
 $("#statsBtn").onclick = openStats;
+wireSettingsUI({ $, toast });
 document.querySelectorAll("dialog .close").forEach((b) => (b.onclick = () => b.closest("dialog").close()));
 window.addEventListener("keydown", (e) => {
   if (document.querySelector("dialog[open]")) return;

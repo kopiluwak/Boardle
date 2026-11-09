@@ -7,6 +7,7 @@ A self-contained, zero-build recreation of [Boardle](https://github.com/rorycoch
 * **Python only for tooling** — a tiny `serve.py` for local play and `tools/build_puzzles.py` to regenerate puzzles.
 * 4 puzzle modes like the original: **Mini** (3 moves × 3 tries), **Boardle** (5×5), **Mega** (7×7), **Maxi** (9×9).
 * Fifth tab **Openings** (`#openings`): beginner White & Black lessons with move ideas, Learn (show → hint → recall) and spaced Recall practice. Progress uses separate `localStorage` keys from puzzle stats.
+* Larger board (up to `min(90vw, calc(100vh - 220px), 680px)`), default **Carolina blue / white** squares, and a **⚙ Board settings** dialog (custom colors + presets) stored under `boardle:settings:boardColors`.
 * 1,095 Lichess puzzles per mode (3 years of dailies), then it wraps around.
 
 ## How to play
@@ -26,8 +27,8 @@ e.g. `npx serve .`.
 ## Deploy to your website
 Upload the **contents of this folder** anywhere that serves static files — the root or a sub-path
 (e.g. `https://example.com/boardle/`); all paths are relative. You only need:
-`index.html style.css app.js logic.js config.js vendor/ pieces/ puzzles/`
-(`serve.py`, `tools/`, `test.mjs`, `README.md` are optional).
+`index.html style.css app.js logic.js config.js settings.js openings/ vendor/ pieces/ puzzles/`
+(`serve.py`, `tools/`, `test.mjs`, `README.md`, `INSTALL.md` are optional).
 
 * **Existing web server (nginx/Apache)**: `rsync -av --exclude tools --exclude test.mjs ./ user@host:/var/www/html/boardle/`
 * **GitHub Pages**: push this folder to a repo → Settings → Pages → deploy from branch.
@@ -78,5 +79,6 @@ No fabricated popularity percentages — lessons teach ideas, not database stats
 ## Differences from the original
 * No Flask/Postgres/React/Heroku — puzzles ship as static JSON, selected client-side by date.
 * Stats/streaks per mode in `localStorage` (like the original), plus a guess-distribution chart.
+* Board colors default to Carolina blue / white; change them anytime via ⚙ (does not affect puzzle or openings progress keys).
 * If a guess ends the game early (e.g. a premature mate), you can submit the short row; empty slots count as ⬛.
 * Highlights the opponent's last move and checks; lichess training link shown after finishing.
