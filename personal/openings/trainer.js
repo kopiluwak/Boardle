@@ -1,6 +1,6 @@
 // Pure openings trainer logic (no DOM). Builds positions from lesson lines.
 
-import { Chess } from "../vendor/chess.js?v=3.2";
+import { Chess } from "../vendor/chess.js?v=3.3";
 
 /**
  * Apply a SAN move; throws if illegal.

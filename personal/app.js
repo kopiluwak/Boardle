@@ -1,12 +1,12 @@
-import { Chess } from "./vendor/chess.js?v=3.2";
-import { CONFIG } from "./config.js?v=3.2";
-import { scoreGuess, dayNumber, puzzleIndex, emojiGrid, shouldApplyStart } from "./logic.js?v=3.2";
-import { enterOpenings, leaveOpenings, openingsActive, openingsTabActive, wireOpeningsEvents } from "./openings/ui.js?v=3.2";
-import { wireSettingsUI } from "./settings.js?v=3.2";
-import { store, initStorage, logEvent } from "./storage.js?v=3.2";
-import { runKey, movetext, TEST_TRIES, TEST_MOVES, RUN_FORMAT, newAttempt, attemptMove, attemptRow } from "./openings/testmode.js?v=3.2";
-import { slidePiece, REPLY_DELAY_MS } from "./anim.js?v=3.2";
-import { wireProfileUI } from "./history.js?v=3.2";
+import { Chess } from "./vendor/chess.js?v=3.3";
+import { CONFIG } from "./config.js?v=3.3";
+import { scoreGuess, dayNumber, puzzleIndex, emojiGrid, shouldApplyStart } from "./logic.js?v=3.3";
+import { enterOpenings, leaveOpenings, openingsActive, openingsTabActive, wireOpeningsEvents } from "./openings/ui.js?v=3.3";
+import { wireSettingsUI } from "./settings.js?v=3.3";
+import { store, initStorage, logEvent } from "./storage.js?v=3.3";
+import { runKey, movetext, TEST_TRIES, TEST_MOVES, RUN_FORMAT, newAttempt, attemptMove, attemptRow } from "./openings/testmode.js?v=3.3";
+import { slidePiece, REPLY_DELAY_MS } from "./anim.js?v=3.3";
+import { wireProfileUI } from "./history.js?v=3.3";
 
 const $ = (s) => document.querySelector(s);
 const FILES = "abcdefgh";

@@ -1,7 +1,7 @@
 // Openings TEST mode — pure logic (no DOM): variation ordering, unlocks,
 // "next due" selection, result recording. Used by openings/ui.js + app.js.
-import { Chess } from "../vendor/chess.js?v=3.2";
-import { LESSONS, TEST_TREES, lessonById } from "./data.js?v=3.2";
+import { Chess } from "../vendor/chess.js?v=3.3";
+import { LESSONS, TEST_TREES, lessonById } from "./data.js?v=3.3";
 
 export const TEST_MOVES = 5;   // the player's OWN moves per try (the computer plays the replies)
 export const TEST_PLIES = 2 * TEST_MOVES - 1; // plies a line needs after `start` (5 yours + 4 replies)

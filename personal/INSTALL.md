@@ -1,7 +1,7 @@
-# Install Boardle personal v3.2 (computer plays the opponent in Openings)
+# Install Boardle personal v3.3 (adds AWS serverless deploy for ch35s.com)
 
 This archive was **not** installed on your Mac for you; run these steps yourself.
-It contains everything from earlier versions (Openings tab, Carolina blue board, ⚙ colors) plus v3, v3.1 and v3.2.
+It contains everything from earlier versions (Openings tab, Carolina blue board, ⚙ colors) plus v3, v3.1, v3.2 and v3.3.
 
 ## 1. Back up the current folder
 ```bash
@@ -53,6 +53,10 @@ progress (localStorage and `~/.boardle/`) is untouched.
 When changing the code yourself, bump the version so browsers pick up the change:
 `python3 tools/stamp_version.py 3.3` (then `node test-version.mjs` checks every import is stamped).
 
+## What's new in v3.3: deploy to AWS
+- `aws/deploy.sh` puts the app on your own domain with CloudFront + S3 + Lambda + DynamoDB. Step by step:
+  **`aws/README-DEPLOY.md`**. The game itself is unchanged; `python3 serve.py` works exactly as before.
+
 ## What's new in v3.2: the computer plays your opponent
 - **Openings → Test**: you only move **your own side**. The computer plays the opponent's book move (short
   animation + yellow last-move highlight) and answers each of your correct moves instantly. A try is 5 of your
@@ -67,7 +71,7 @@ When changing the code yourself, bump the version so browsers pick up the change
   is simply restarted (its rows used the old both-sides format).
 
 Install exactly like before (steps 1–3), restart `python3 serve.py`, and press **Cmd+Shift+R** once.
-The page should report version 3.2 (view source: `<meta name="boardle-version" content="3.2">`).
+The page should report version 3.3 (view source: `<meta name="boardle-version" content="3.3">`).
 
 ## Applying only the v3 patch instead
 If your folder already matches the previous version (board colors, commit f82c606):

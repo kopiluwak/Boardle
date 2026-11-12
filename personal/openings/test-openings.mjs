@@ -1,16 +1,16 @@
 // node openings/test-openings.mjs — legality, schedule, trainer, UI seams, start-race helper
 import assert from "assert";
-import { Chess } from "../vendor/chess.js?v=3.2";
-import { LESSONS, lessonById } from "./data.js?v=3.2";
+import { Chess } from "../vendor/chess.js?v=3.3";
+import { LESSONS, lessonById } from "./data.js?v=3.3";
 import {
   buildSteps, learnerCards, gradeAttempt, playSan, advancePastThem,
   nextLearnPhase, LEARN_PHASES, progressSummary, isAcceptable,
-} from "./trainer.js?v=3.2";
+} from "./trainer.js?v=3.3";
 import {
   makeCard, reviewCard, noteExposure, isDue, dueCount, pickSession, INTERVALS_MS,
-} from "./schedule.js?v=3.2";
-import { shouldApplyStart } from "../logic.js?v=3.2";
-import { CONFIG } from "../config.js?v=3.2";
+} from "./schedule.js?v=3.3";
+import { shouldApplyStart } from "../logic.js?v=3.3";
+import { CONFIG } from "../config.js?v=3.3";
 
 // --- every lesson line is legal ---
 for (const lesson of LESSONS) {
@@ -152,7 +152,7 @@ function installDomMock() {
 }
 
 const { local } = installDomMock();
-const ui = await import("./ui.js?v=3.2");
+const ui = await import("./ui.js?v=3.3");
 const T = ui._test;
 T.setReplyDelay(0); // computer replies synchronously in unit tests (a dedicated block below checks the delay)
 

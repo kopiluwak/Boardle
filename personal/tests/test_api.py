@@ -82,7 +82,8 @@ class ApiTest(unittest.TestCase):
         self.assertEqual((s, h["Cache-Control"]), (200, "no-cache"))
         s, _, h = c.call("GET", "/api/me")
         self.assertEqual(h["Cache-Control"], "no-store")
-        for p in ("/serve.py", "/boardle_backend/server.py", "/tests/test_api.py", "/.git/config", "/requirements.txt"):
+        for p in ("/serve.py", "/boardle_backend/server.py", "/tests/test_api.py", "/.git/config", "/requirements.txt",
+                  "/aws/deploy.sh", "/aws/lambda_handler.py", "/aws/README-DEPLOY.md"):
             s, _, _ = c.call("GET", p)
             self.assertEqual(s, 404, p)
         s, body, _ = c.call("GET", "/healthz")

@@ -35,7 +35,7 @@ It must be served over http(s) (ES modules + `fetch` don't work from `file://`).
 e.g. `npx serve .`.
 
 ## Deploy to your website
-For sign-in + per-player history on AWS (Lightsail/EC2 or App Runner + DynamoDB) follow **`DEPLOY_AWS.md`**.
+For sign-in + per-player history on AWS: serverless (CloudFront + S3 + Lambda + DynamoDB) with **`aws/README-DEPLOY.md`** / `aws/deploy.sh`, or a single server / App Runner with **`DEPLOY_AWS.md`**.
 Plain static hosting below still works, with history kept in each browser.
 
 Upload the **contents of this folder** anywhere that serves static files — the root or a sub-path
@@ -91,7 +91,8 @@ serve.py          local server (static app + /api), stdlib only
 boardle_backend/  API server, password hashing, SQLite + DynamoDB storage
 storage.js        front-end storage: localStorage (Guest/static) or synced profile
 history.js        👤 profile / sign-in / history dialog
-Dockerfile, DEPLOY_AWS.md, requirements.txt   AWS deployment
+Dockerfile, DEPLOY_AWS.md, requirements.txt   AWS deployment (server / App Runner)
+aws/                                         serverless AWS deploy: deploy.sh, destroy.sh, lambda_handler.py
 tools/build_puzzles.py   puzzle generator
 test.mjs          node sanity tests (puzzle scoring + legality)
 openings/         openings trainer (data, schedule, trainer, testmode, ui) + tests
