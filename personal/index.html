@@ -3,9 +3,10 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="boardle-version" content="3.3">
   <title>Boardle — daily chess puzzle, Wordle style</title>
   <link rel="icon" href="pieces/wN.svg">
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=3.3">
 </head>
 <body>
   <header>
@@ -62,8 +63,9 @@
     <p>A move must match the SAN exactly (<code>Qxa8#</code> ≠ <code>Qxa8</code>). Mini has 3 moves / 3 tries,
       Boardle 5/5, Mega 7/7, Maxi 9/9. Undo = Backspace.</p>
     <p><b>Openings</b> tab: beginner White &amp; Black lessons with ideas. Learn (show → hint → recall)
-      and spaced Recall practice. <b>Test</b> plays like Boardle: from a book position, enter the next 5 moves
-      (both sides) in 5 tries — the most common replies first, then rarer sidelines unlock as you solve them.</p>
+      and spaced Recall practice. You only ever move <b>your own side</b> — the computer plays the opponent's book replies.
+      <b>Test</b> plays like Boardle: find 5 of your moves in 5 tries, graded as you play (any non-🟩 move resets the board) —
+      the most common replies first, then rarer sidelines unlock as you solve them.</p>
     <p>👤 <b>Profile</b>: sign in (when running <code>serve.py</code> or the AWS server) so each player keeps their own
       history; export/import JSON as a backup.</p>
     <p class="muted">Based on <a href="https://github.com/rorycochrane/Boardle">Boardle</a> by Rory Cochrane.
@@ -103,6 +105,52 @@
     </div>
   </dialog>
 
-  <script type="module" src="app.js"></script>
+  <!-- Boot guard (classic script, runs even if the module graph fails to load/link).
+       If the app hasn't started a few seconds after load, show a message in the board
+       area with a button that re-downloads every app file and reloads. -->
+  <script>
+  (function () {
+    var errors = [];
+    window.addEventListener("error", function (e) {
+      errors.push((e && (e.message || (e.target && (e.target.src || e.target.href)))) || "load error");
+      if (!window.__boardleBooted) setTimeout(function () { if (!window.__boardleBooted) window.__boardleBootFailed(); }, 600);
+    }, true);
+    window.addEventListener("unhandledrejection", function (e) {
+      errors.push(String(e && e.reason && (e.reason.message || e.reason)));
+    });
+    var FILES = ["", "index.html", "app.js", "style.css", "config.js", "logic.js", "settings.js", "storage.js", "history.js", "anim.js",
+      "openings/ui.js", "openings/data.js", "openings/trainer.js", "openings/schedule.js", "openings/testmode.js", "vendor/chess.js"];
+    function freshReload(btn) {
+      if (btn) { btn.disabled = true; btn.textContent = "Reloading…"; }
+      var v = (document.querySelector('meta[name="boardle-version"]') || {}).content || "";
+      var urls = [];
+      FILES.forEach(function (f) { urls.push(f || "./"); if (v && /\.(js|css)$/.test(f)) urls.push(f + "?v=" + v); });
+      var jobs = urls.map(function (u) { return fetch(u, { cache: "reload" }).catch(function () {}); });
+      Promise.all(jobs).then(function () { location.reload(); }, function () { location.reload(); });
+    }
+    window.__boardleFreshReload = freshReload;
+    window.__boardleBootFailed = function (msg) {
+      if (window.__boardleBooted || document.getElementById("bootError")) return;
+      var host = document.getElementById("board") || document.body;
+      var box = document.createElement("div");
+      box.id = "bootError";
+      box.setAttribute("role", "alert");
+      box.style.cssText = "position:absolute;inset:0;display:flex;flex-direction:column;gap:12px;align-items:center;justify-content:center;padding:24px;text-align:center;background:#1e1e1e;color:#eee;font:15px/1.4 system-ui,sans-serif;z-index:5";
+      box.innerHTML = "<b style='font-size:18px'>Boardle didn't finish loading</b>" +
+        "<span>Your browser is most likely mixing old cached files with the new version.</span>" +
+        "<button type='button' style='padding:10px 16px;font-size:15px;border-radius:6px;border:0;background:#4B9CD3;color:#fff;cursor:pointer'>Reload fresh copy</button>" +
+        "<span style='opacity:.75;font-size:13px'>Or press Cmd+Shift+R (Mac) / Ctrl+Shift+R (Windows).</span>" +
+        "<code style='opacity:.6;font-size:12px;max-width:90%;overflow-wrap:anywhere'></code>";
+      box.querySelector("code").textContent = msg || errors.slice(-2).join(" | ");
+      box.querySelector("button").onclick = function () { freshReload(this); };
+      if (host.id === "board") { host.style.position = host.style.position || "relative"; }
+      host.appendChild(box);
+    };
+    window.addEventListener("load", function () {
+      setTimeout(function () { if (!window.__boardleBooted) window.__boardleBootFailed(); }, 8000);
+    });
+  })();
+  </script>
+  <script type="module" src="app.js?v=3.3"></script>
 </body>
 </html>

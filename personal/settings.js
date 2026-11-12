@@ -1,5 +1,5 @@
 // Board appearance settings — CSS custom properties + per-player storage (storage.js).
-import { store } from "./storage.js";
+import { store } from "./storage.js?v=3.3";
 // Does not touch puzzle or openings keys.
 
 const COLORS_KEY = "boardle:settings:boardColors";

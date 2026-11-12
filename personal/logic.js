@@ -37,7 +37,7 @@ export function puzzleIndex(dayNum, count) {
 }
 
 export function emojiGrid(results, size) {
-  const map = { good: "🟩", okay: "🟨", bad: "⬛" };
+  const map = { good: "🟩", okay: "🟨", bad: "⬛", skip: "⬜" }; // skip = cell not reached (Openings test)
   const rows = [];
   for (let r = 0; r * size < results.length; r++) {
     const row = results.slice(r * size, (r + 1) * size);

@@ -1,11 +1,11 @@
 // Profile / sign-in / history dialog (👤). Works in both storage modes.
-import { CONFIG } from "./config.js";
+import { CONFIG } from "./config.js?v=3.3";
 import {
   store, status, onStorageStatus, signIn, signOut, readLog, exportHistory, importHistory,
-} from "./storage.js";
-import { LESSONS } from "./openings/data.js";
-import { progressSummary } from "./openings/trainer.js";
-import { orderedVariations, testSummary, RESULTS_KEY, variationById } from "./openings/testmode.js";
+} from "./storage.js?v=3.3";
+import { LESSONS } from "./openings/data.js?v=3.3";
+import { progressSummary } from "./openings/trainer.js?v=3.3";
+import { orderedVariations, testSummary, RESULTS_KEY, variationById } from "./openings/testmode.js?v=3.3";
 
 const esc = (x) => String(x ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 

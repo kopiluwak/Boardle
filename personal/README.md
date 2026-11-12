@@ -10,8 +10,12 @@ A self-contained, zero-build recreation of [Boardle](https://github.com/rorycoch
 * 4 puzzle modes like the original: **Mini** (3 moves × 3 tries), **Boardle** (5×5), **Mega** (7×7), **Maxi** (9×9).
 * Fifth tab **Openings** (`#openings`): beginner White & Black lessons with move ideas, Learn (show → hint → recall) and spaced Recall practice. Progress uses separate `localStorage` keys from puzzle stats.
 * Larger board (up to `min(90vw, calc(100vh - 220px), 680px)`), default **Carolina blue / white** squares, and a **⚙ Board settings** dialog (custom colors + presets) stored under `boardle:settings:boardColors`.
-* **Openings → Test** mode: Wordle-style, same board/grid as Boardle — from a book position, enter the next
-  5 moves (both sides) in 5 tries. Main line (most common reply) first, then rarer replies unlock as you solve them.
+* **Openings → Test** mode: Wordle-style, same board/grid as Boardle — you play only **your own side** and the
+  computer plays the opponent's book replies (short animation + last-move highlight). Find 5 of your moves in
+  5 tries; each move is graded as you play it (🟩 book · 🟨 book elsewhere · ⬛ not book) and any non-🟩 move ends
+  the try and resets the board. Main line (most common reply) first, then rarer replies unlock as you solve them.
+* **The computer always plays the opponent** in Learn and Recall too: as Black it opens 1.e4 / 1.d4 for you,
+  then answers each of your moves with the book reply.
 * **👤 Profiles & history**: sign in (username + password) so each player has their own results, streaks,
   openings progress, test results and board colors; history view + JSON export/import.
 * 1,095 Lichess puzzles per mode (3 years of dailies), then it wraps around.
@@ -30,8 +34,12 @@ python3 serve.py          # http://localhost:8000   (or: python3 serve.py 8080)
 It must be served over http(s) (ES modules + `fetch` don't work from `file://`). Any static server works,
 e.g. `npx serve .`.
 
+Ports, environment variables, storage, accounts, tests, and AWS operations are in
+[RUNTIME.md](RUNTIME.md).
+
 ## Deploy to your website
-For sign-in + per-player history on AWS (Lightsail/EC2 or App Runner + DynamoDB) follow **`DEPLOY_AWS.md`**.
+For sign-in + per-player history on AWS: serverless (CloudFront + S3 + Lambda + DynamoDB) with **`aws/README-DEPLOY.md`** / `aws/deploy.sh`, or a single server / App Runner with **`DEPLOY_AWS.md`**.
+Runtime details (architecture, env vars, logs, backups, teardown) are in [RUNTIME.md](RUNTIME.md).
 Plain static hosting below still works, with history kept in each browser.
 
 Upload the **contents of this folder** anywhere that serves static files — the root or a sub-path
@@ -43,6 +51,12 @@ Upload the **contents of this folder** anywhere that serves static files — the
 * **GitHub Pages**: push this folder to a repo → Settings → Pages → deploy from branch.
 * **Netlify / Cloudflare Pages / Vercel**: drag-and-drop the folder or point at the repo; no build command, output dir = `.`.
 * Make sure `.js` is served as `text/javascript` (all mainstream hosts do).
+
+## Updating / cache busting
+All local module URLs carry `?v=<version>` (see `<meta name="boardle-version">` in `index.html`). After
+editing any `.js`/`.css`, run `python3 tools/stamp_version.py <new-version>`; `node test-version.mjs` verifies
+it. `serve.py` sends `Cache-Control: no-cache` for static files, and a boot guard in `index.html` shows a
+"Reload fresh copy" button if the app fails to start.
 
 ## Customise — `config.js`
 * `startDate` — the date of puzzle #1 (default 2026-11-03). Day number = days since then + 1, using the
@@ -71,16 +85,19 @@ original Flask API performed.
 index.html        page shell + help/stats dialogs
 style.css         layout, board, tiles (Wordle colours)
 app.js            board UI (click or drag), promotion picker, rows/submit, stats, share
+anim.js           piece slide animation + computer reply delay (Openings)
 logic.js          pure logic: scoreGuess (same algorithm as original), day → puzzle index, emoji grid
 config.js         settings
 vendor/chess.js   chess.js 1.4.0 (BSD-2) – move legality + SAN
 pieces/*.svg      cburnett piece set (from Lichess, GPLv2+)
 puzzles/*.json    3/5/7/9-move puzzles from the Lichess puzzle DB (CC0)
 serve.py          local server (static app + /api), stdlib only
+RUNTIME.md        runtime and operations (env vars, storage, tests, AWS)
 boardle_backend/  API server, password hashing, SQLite + DynamoDB storage
 storage.js        front-end storage: localStorage (Guest/static) or synced profile
 history.js        👤 profile / sign-in / history dialog
-Dockerfile, DEPLOY_AWS.md, requirements.txt   AWS deployment
+Dockerfile, DEPLOY_AWS.md, requirements.txt   AWS deployment (server / App Runner)
+aws/                                         serverless AWS deploy: deploy.sh, destroy.sh, lambda_handler.py
 tools/build_puzzles.py   puzzle generator
 test.mjs          node sanity tests (puzzle scoring + legality)
 openings/         openings trainer (data, schedule, trainer, testmode, ui) + tests
@@ -90,6 +107,17 @@ tests/            Python API tests
 ## Openings tab
 Original beginner lines (Italian, London, Queen's Gambit as White; Open Game, Caro-Kann, QGD as Black) with short idea notes written for this build — **not** copied from Chessable/Chess.com courses.
 Feature inspiration (methods only): active recall & spaced review ([Chessable MoveTrainer reviews](https://checkmatex.app/blog/chessable-review-i-tried-it-for-30-days), [ChessDir Chessable](https://chessdir.app/apps/chessable)); repertoire practice / coverage thinking ([Chessbook](https://chessbook.com/), [64 Squares review](https://64squares.substack.com/p/chessbook-review)); free exploration patterns ([Lichess features](https://lichess.org/features)); learn-by-playing passes ([Prologue comparison](https://prologuechess.com/en/blog/best-chess-opening-apps/)).
+Learn / Recall / Test never ask you to move the opponent's pieces: the computer plays them (≈0.5 s delay,
+slide animation, last-move highlight). In Learn's *show* phase your recommended move is outlined on the board
+instead of being played for you.
+
+Test design (v3.2): main lines start from move one (as Black the computer opens), sidelines start at the
+opponent's deviation, which the computer replays at the start of every try. A try is 5 of **your** moves; after
+each correct move the computer replies instantly with the book move. A wrong move can't be "continued" (the
+book has no reply to it), so the try stops there — remaining cells stay blank (⬜ in the share grid) — and the
+board resets for the next try. 🟨 means the move is one of your later moves in this line, or another book move
+from this opening at this position (other variations / Learn alternatives), but not the move for this line.
+
 Test-mode variation weights (`TEST_TREES` in `openings/data.js`) are **approximate**, rounded from Lichess
 opening-explorer frequencies, and are only used to order tests from most to least common.
 

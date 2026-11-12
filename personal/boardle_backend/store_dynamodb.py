@@ -5,10 +5,12 @@ Single table, string partition key `pk` + string sort key `sk`:
   pk = "USER#<username>"     sk = "PROFILE"   pw_hash, created_at
   pk = "USER#<username>"     sk = "HISTORY"   data_z (Binary, zlib JSON), rev (N), updated_at (N)
   pk = "SESSION#<sha256>"    sk = "SESSION"   username, expires_at (N), ttl (N, DynamoDB TTL attribute)
+  pk = "RATE#<sha256>"       sk = "W#<window>" hits (N), ttl (N)   -- failed-login counter (DynamoRateLimiter)
 
 History is zlib-compressed to stay well under the 400 KB item limit.
 Writes to HISTORY use a conditional expression on `rev` (optimistic locking).
 """
+import hashlib
 import json
 import time
 import zlib
@@ -93,6 +95,47 @@ class DynamoStore(Store):
 
     def close(self):
         pass
+
+
+class DynamoRateLimiter:
+    """Failed-login limiter shared by every Lambda container (fixed window per key).
+
+    Same interface as api.RateLimiter. Keys are hashed so no IP/username is stored in
+    clear. Items expire through the table's TTL. Any DynamoDB error fails *open*
+    (never locks people out because of a throttled table) and is logged.
+    """
+
+    def __init__(self, table, limit=10, window=900):
+        self.table, self.limit, self.window = table, limit, window
+
+    def _key(self, key, now):
+        w = int(now // self.window)
+        return {"pk": "RATE#" + hashlib.sha256(key.encode("utf-8")).hexdigest(), "sk": f"W#{w}"}, w
+
+    def blocked(self, key):
+        k, _ = self._key(key, time.time())
+        try:
+            it = self.table.get_item(Key=k, ConsistentRead=True).get("Item")
+        except ClientError as e:  # pragma: no cover
+            print(f"rate-limit read failed: {e!r}")
+            return False
+        return bool(it) and int(it.get("hits", 0)) >= self.limit
+
+    def fail(self, key):
+        k, w = self._key(key, time.time())
+        try:
+            self.table.update_item(Key=k, UpdateExpression="ADD hits :one SET #t = :ttl",
+                                   ExpressionAttributeNames={"#t": "ttl"},
+                                   ExpressionAttributeValues={":one": 1, ":ttl": (w + 2) * self.window})
+        except ClientError as e:  # pragma: no cover
+            print(f"rate-limit write failed: {e!r}")
+
+    def clear(self, key):
+        k, _ = self._key(key, time.time())
+        try:
+            self.table.delete_item(Key=k)
+        except ClientError as e:  # pragma: no cover
+            print(f"rate-limit clear failed: {e!r}")
 
 
 def create_table(table_name="boardle", region=None, endpoint_url=None, resource=None):

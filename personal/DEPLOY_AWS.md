@@ -1,5 +1,9 @@
 # Deploying Boardle to AWS (profiles + per-player history)
 
+> **Serverless option (CloudFront + S3 + Lambda + DynamoDB, ~free at low traffic):** see
+> [`aws/README-DEPLOY.md`](aws/README-DEPLOY.md) and run `DOMAIN=ch35s.com ./aws/deploy.sh`.
+> The rest of this file covers the single-server (Lightsail/EC2) and App Runner options.
+
 `serve.py` is now a small Python server: it serves the static app **and** a JSON API
 for sign-in and history. Locally it uses SQLite (`~/.boardle/boardle.sqlite3`). On AWS you
 can keep SQLite on a single server, or switch to DynamoDB with one env var.

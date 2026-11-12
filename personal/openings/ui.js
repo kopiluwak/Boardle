@@ -1,23 +1,24 @@
 // Openings tab UI — additive; puzzle mode DOM is hidden while this is active.
-import { Chess } from "../vendor/chess.js";
-import { LESSONS, lessonById } from "./data.js";
+import { Chess } from "../vendor/chess.js?v=3.3";
+import { LESSONS, lessonById } from "./data.js?v=3.3";
 import {
   buildSteps, learnerCards, gradeAttempt,
   advancePastThem, progressSummary,
-} from "./trainer.js";
+} from "./trainer.js?v=3.3";
 import {
   makeCard, reviewCard, noteExposure, pickSession, dueCount,
-} from "./schedule.js";
+} from "./schedule.js?v=3.3";
 import {
   orderedVariations, statusOf, nextTest, randomTest, recordResult, followingVariation,
   testSummary, variationById, RESULTS_KEY, TEST_TRIES, movetext,
-} from "./testmode.js";
+} from "./testmode.js?v=3.3";
 
 const FILES = "abcdefgh";
 const $ = (s, root = document) => root.querySelector(s);
 
 // Per-player storage (localStorage when signed out / no server; synced profile when signed in)
-import { store, logEvent } from "../storage.js";
+import { store, logEvent } from "../storage.js?v=3.3";
+import { slidePiece, REPLY_DELAY_MS } from "../anim.js?v=3.3";
 
 const CARDS_KEY = "boardle:openings:cards";
 const META_KEY = "boardle:openings:meta";
@@ -45,8 +46,36 @@ let drag = null;
 let feedback = "";
 let banner = ""; // catalog completion / session messages
 let orientationColor = "w";
+let lastMove = null;     // {from,to} highlighted on the board (the move just played)
+let replyBusy = false;   // computer is about to play the opponent's book move → input locked
+let replyTimer = null;
+let replyDelay = REPLY_DELAY_MS;
+
+/** Run fn after a short beat (the computer "thinking"); dropped if the session changed meanwhile. */
+function afterReply(fn) {
+  if (replyTimer != null) clearTimeout(replyTimer);
+  const sid = practiceSessionId;
+  replyBusy = true;
+  const run = () => {
+    replyTimer = null;
+    replyBusy = false;
+    if (sid !== practiceSessionId) return;
+    fn();
+  };
+  if (replyDelay <= 0) run(); else replyTimer = setTimeout(run, replyDelay);
+}
+/** The computer plays an opponent step on the panel board (highlight + slide). */
+function playThem(step, note = true) {
+  setFen(step.afterFen, { from: step.from, to: step.to });
+  if (note) feedback = `${feedback ? feedback + " " : ""}Opponent played <b>${step.san}</b> — ${step.idea}`;
+  render();
+  slidePiece($("#board"), step.from, step.to);
+}
+const prevMoveOf = (step) => (step && step.prev ? { from: step.prev.from, to: step.prev.to } : null);
 
 function clearPracticeTimer() {
+  if (replyTimer != null) { clearTimeout(replyTimer); replyTimer = null; }
+  replyBusy = false;
   if (practiceRevealTimer != null) {
     clearTimeout(practiceRevealTimer);
     practiceRevealTimer = null;
@@ -74,10 +103,11 @@ function ensureCardsFor(lessonObj) {
   return all;
 }
 
-function setFen(f) {
+function setFen(f, last = null) {
   fen = f;
   game = new Chess(f);
   selected = null;
+  lastMove = last;
 }
 
 function lessonTitleForStep(step) {
@@ -100,8 +130,9 @@ function renderBoard() {
   const el = $("#board");
   if (!el) return;
   el.innerHTML = "";
-  const hist = game.history({ verbose: true });
-  const lastMv = hist.length ? hist[hist.length - 1] : null;
+  const lastMv = lastMove;
+  // Learn "show" phase: outline the recommended move instead of playing it for you
+  const sug = (mode === "learn" && learnPhase === "show" && !replyBusy) ? currentUsStep() : null;
   const targets = (!practiceReveal && selected)
     ? game.moves({ square: selected, verbose: true }).map((m) => m.to) : [];
   squaresInOrder().forEach((sq, i) => {
@@ -111,6 +142,7 @@ function renderBoard() {
     d.dataset.sq = sq;
     if (lastMv && (sq === lastMv.from || sq === lastMv.to)) d.classList.add("last");
     if (sq === selected) d.classList.add("sel");
+    if (sug && (sq === sug.from || sq === sug.to)) d.classList.add("suggest");
     const p = game.get(sq);
     if (targets.includes(sq)) d.classList.add(p ? "capture" : "target");
     if (p) {
@@ -163,12 +195,15 @@ function currentUsStep() {
   return practiceStep;
 }
 
-/** Advance learn line after a resolved "us" step; set show-phase afterFen for next us move. */
+/**
+ * Advance the learn line after a resolved "us" step. Your move stays on the board, then the computer
+ * plays the opponent's book reply after a short beat; the next move is shown (outlined) on that position.
+ */
 function advanceLearnAfterUs(step) {
   const adv = advancePastThem(steps, step.index, step.afterFen);
-  learnIdx = adv.nextIndex;
-  learnPhase = "show";
-  if (learnIdx >= steps.length) {
+  if (adv.nextIndex >= steps.length) {
+    learnIdx = adv.nextIndex;
+    learnPhase = "show";
     banner = `Finished ${lesson.title}. Use Recall to lock moves in (spaced reviews are separate from Learn walkthroughs).`;
     feedback = banner;
     mode = "catalog";
@@ -178,15 +213,17 @@ function advanceLearnAfterUs(step) {
     orientationColor = "w";
     return;
   }
-  // Preview next learner move in show phase
-  if (steps[learnIdx]?.by === "us") setFen(steps[learnIdx].afterFen);
-  else setFen(adv.fen);
+  learnIdx = adv.nextIndex;
+  learnPhase = "show";
+  if (!adv.them.length) { setFen(steps[learnIdx].beforeFen, prevMoveOf(steps[learnIdx])); return; }
+  setFen(step.afterFen, { from: step.from, to: step.to });
+  afterReply(() => { for (const t of adv.them) playThem(t); });
 }
 
 function onLearnMove(mv) {
   const step = currentUsStep();
-  // Only accept board input during hint/recall — never during show
-  if (!step || learnPhase === "show") return false;
+  // Only accept board input during hint/recall — never during show (or while the computer replies)
+  if (!step || learnPhase === "show" || replyBusy) return false;
   const g = new Chess(step.beforeFen);
   let m = null;
   try { m = g.move(mv); } catch { m = null; }
@@ -199,7 +236,7 @@ function onLearnMove(mv) {
     // Lapse always recorded (wrong attempt)
     saveCard(reviewCard(prev, false));
     feedback = `Not quite. ${hintText(step)}`;
-    setFen(step.beforeFen);
+    setFen(step.beforeFen, prevMoveOf(step));
     render();
     return false;
   }
@@ -219,7 +256,7 @@ function onLearnMove(mv) {
 }
 
 function onPracticeMove(mv) {
-  if (practiceReveal) return false;
+  if (practiceReveal || replyBusy) return false;
   const step = practiceStep;
   if (!step) return false;
   const g = new Chess(step.beforeFen);
@@ -233,10 +270,10 @@ function onPracticeMove(mv) {
   practiceReveal = true;
   if (grade.ok) {
     feedback = `Correct: ${m.san}. ${step.idea}`;
-    setFen(step.afterFen);
+    setFen(step.afterFen, { from: m.from, to: m.to });
   } else {
     feedback = `Expected ${step.san}. ${step.idea}`;
-    setFen(step.afterFen); // show the correct result board
+    setFen(step.afterFen, { from: step.from, to: step.to }); // show the correct result board
   }
   render();
   return true;
@@ -265,8 +302,12 @@ function startPracticeCard(step) {
   practiceStep = step;
   practiceReveal = false;
   clearPracticeTimer();
-  setFen(step.beforeFen);
   orientationColor = step.beforeFen.split(" ")[1];
+  if (step.prev && step.prev.by === "them") {
+    // The computer plays the opponent's move that leads into this position, then it's your turn
+    setFen(step.prev.beforeFen, null);
+    afterReply(() => { playThem({ ...step.prev, afterFen: step.beforeFen }, false); });
+  } else setFen(step.beforeFen, prevMoveOf(step));
   selected = null;
   // Keep lesson pointer aligned with current card for labels
   if (step.lessonId) {
@@ -283,7 +324,7 @@ function sqFromPoint(x, y) {
 function onPointerDown(e) {
   if (!active || (mode !== "learn" && mode !== "practice")) return;
   if (mode === "learn" && learnPhase === "show") return;
-  if (practiceReveal || pendingPromo) return;
+  if (practiceReveal || pendingPromo || replyBusy) return;
   const sq = sqFromPoint(e.clientX, e.clientY); if (!sq) return;
   const p = game.get(sq);
   if (selected && selected !== sq && (!p || p.color !== game.turn())) {
@@ -332,11 +373,13 @@ function startLearn(id) {
   banner = "";
   setFen(new Chess().fen());
   orientationColor = lesson.side === "black" ? "b" : "w";
-  while (learnIdx < steps.length && steps[learnIdx].by === "them") {
-    setFen(steps[learnIdx].afterFen);
-    learnIdx++;
+  const opening = [];
+  while (learnIdx < steps.length && steps[learnIdx].by === "them") opening.push(steps[learnIdx++]);
+  if (opening.length) {
+    // As Black the computer opens as White; watch its move, then study your answer
+    feedback = "";
+    afterReply(() => { for (const t of opening) playThem(t); });
   }
-  if (learnIdx < steps.length) setFen(steps[learnIdx].afterFen);
   render();
 }
 
@@ -375,19 +418,20 @@ function startPractice(id) {
 }
 
 function learnContinue() {
+  if (replyBusy) return;
   const step = currentUsStep();
   if (!step) return;
   if (learnPhase === "show") {
     learnPhase = "hint";
     feedback = `Your move. Hint: ${hintText(step)}`;
-    setFen(step.beforeFen);
+    setFen(step.beforeFen, prevMoveOf(step));
     render();
     return;
   }
   if (learnPhase === "hint") {
     learnPhase = "recall";
     feedback = "Play the move from memory (counts for spaced review).";
-    setFen(step.beforeFen);
+    setFen(step.beforeFen, prevMoveOf(step));
     render();
   }
 }
@@ -401,9 +445,10 @@ function showAnswer() {
   const step = currentUsStep();
   if (!step) return;
   if (mode === "practice" && practiceReveal) return; // already revealing
+  if (replyBusy) return;
 
   feedback = `Answer: ${step.san}. ${step.idea}`;
-  setFen(step.afterFen);
+  setFen(step.afterFen, { from: step.from, to: step.to });
 
   if (mode === "practice") {
     const all = cardsMap();
@@ -466,7 +511,7 @@ function renderCatalog() {
       <button type="button" class="primary" id="opPracticeAll">Recall due (${due})</button>
     </div>
     <div class="op-test-box">
-      <div class="op-test-head"><b>Test mode</b> <span class="muted">5 moves · 5 tries, like Boardle · ${tsum.solved}/${tsum.total} variations solved</span></div>
+      <div class="op-test-head"><b>Test mode</b> <span class="muted">5 of your moves · 5 tries · the computer plays the opponent · ${tsum.solved}/${tsum.total} variations solved</span></div>
       <div class="op-actions">
         <button type="button" class="primary" id="opTestNext">Test: next due</button>
         <button type="button" id="opTestRandom">Test: random</button>
@@ -493,7 +538,8 @@ function renderLearnPanel() {
     <p class="muted">${lesson.goal}</p>
     <p class="op-phase">Learn · step ${Math.min(doneUs + 1, totalUs)}/${totalUs} · <b>${learnPhase}</b>
       ${learnPhase === "recall" ? "· graded" : "· guided (no mastery credit)"}</p>
-    <div class="op-idea">${step ? (learnPhase === "show" ? `<b>${step.san}</b> — ${step.idea}` : step.idea) : "Done."}</div>
+    <div class="op-idea">${step ? (learnPhase === "show" ? `Your move: <b>${step.san}</b> <span class="muted">(outlined on the board)</span> — ${step.idea}` : step.idea) : "Done."}</div>
+    <p class="muted op-cpu-note">You play ${lesson.side === "white" ? "White" : "Black"}; the computer plays the opponent's book replies.</p>
     <div class="op-actions">
       ${learnPhase === "show" ? `<button type="button" class="primary" id="opContinue">Got it — hide move</button>` : ""}
       ${learnPhase === "hint" ? `<button type="button" class="primary" id="opContinue">Ready to try (ungraded)</button>` : ""}
@@ -518,7 +564,7 @@ function renderPracticePanel() {
     <h3 class="op-h">Recall practice</h3>
     <p class="muted">${practiceMixed ? `Mixed · now: ${title}` : title} · ${left} left in session
       ${practiceReveal ? " · revealing" : ""}</p>
-    <div class="op-idea">${step && !practiceReveal ? "Find the repertoire move for the side to move." : (step ? `<b>${step.san}</b> — ${step.idea}` : "")}</div>
+    <div class="op-idea">${step && !practiceReveal ? (replyBusy ? "The computer is playing the opponent's move…" : "The opponent just moved (highlighted). Find your repertoire reply.") : (step ? `<b>${step.san}</b> — ${step.idea}` : "")}</div>
     <div class="op-actions">
       ${practiceReveal
         ? `<button type="button" class="primary" id="opPracticeNext">Next</button>`
@@ -565,8 +611,10 @@ function renderTestsPanel() {
       <select id="opTestLesson" aria-label="Opening">${opts}</select>
     </div>
     ${banner ? `<div class="op-banner" role="status">${banner}</div>` : ""}
-    <p class="op-lead">Each test shows a book position right after the opponent's reply (highlighted). Enter the next
-      <b>5 moves for both sides</b>, then Submit — 🟩 right move/slot · 🟨 in the line, wrong slot · ⬛ not in the line. 5 tries.
+    <p class="op-lead">You play only <b>your own side</b>: the computer plays the opponent's book move, you answer, and it
+      replies instantly with the next book move — <b>5 of your moves</b> per try, 5 tries. Each move is graded as you play it:
+      🟩 book move · 🟨 a book move from later in this line or another variation, but not here · ⬛ not in the book.
+      Any non-🟩 move ends the try and the board resets. Main lines start from move one; sidelines start at the opponent's deviation.
       Variations go from the most common reply to rarer ones; solving one unlocks the next.</p>
     <div class="op-actions">
       <button type="button" class="primary" id="opTestNext">${next ? `Next due: ${next.lessonTitle} · ${next.main ? "main line" : next.name}` : "Next due"}</button>
@@ -774,7 +822,9 @@ export const _test = {
     practiceQueue: [...practiceQueue], practiceStep, practiceMixed, feedback, banner,
     lessonId: lesson?.id || null, fen, orientationColor,
     testLessonId, currentTestId: currentTest?.id || null,
+    lastMove, replyBusy,
   }),
+  setReplyDelay: (ms) => { replyDelay = ms; },
   setState: ( partial ) => {
     if ("mode" in partial) mode = partial.mode;
     if ("learnPhase" in partial) learnPhase = partial.learnPhase;
