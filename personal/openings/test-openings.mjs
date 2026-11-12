@@ -1,16 +1,16 @@
 // node openings/test-openings.mjs — legality, schedule, trainer, UI seams, start-race helper
 import assert from "assert";
-import { Chess } from "../vendor/chess.js?v=3.1";
-import { LESSONS, lessonById } from "./data.js?v=3.1";
+import { Chess } from "../vendor/chess.js?v=3.2";
+import { LESSONS, lessonById } from "./data.js?v=3.2";
 import {
   buildSteps, learnerCards, gradeAttempt, playSan, advancePastThem,
   nextLearnPhase, LEARN_PHASES, progressSummary, isAcceptable,
-} from "./trainer.js?v=3.1";
+} from "./trainer.js?v=3.2";
 import {
   makeCard, reviewCard, noteExposure, isDue, dueCount, pickSession, INTERVALS_MS,
-} from "./schedule.js?v=3.1";
-import { shouldApplyStart } from "../logic.js?v=3.1";
-import { CONFIG } from "../config.js?v=3.1";
+} from "./schedule.js?v=3.2";
+import { shouldApplyStart } from "../logic.js?v=3.2";
+import { CONFIG } from "../config.js?v=3.2";
 
 // --- every lesson line is legal ---
 for (const lesson of LESSONS) {
@@ -152,8 +152,9 @@ function installDomMock() {
 }
 
 const { local } = installDomMock();
-const ui = await import("./ui.js?v=3.1");
+const ui = await import("./ui.js?v=3.2");
 const T = ui._test;
+T.setReplyDelay(0); // computer replies synchronously in unit tests (a dedicated block below checks the delay)
 
 // Handler name seam: currentUsStep must exist; currentUserStep must not
 assert.strictEqual(typeof T.currentUsStep, "function");
@@ -231,7 +232,7 @@ assert.ok(T.onLearnMove({ from: "a2", to: "a3" }) === false || T.onLearnMove({ f
   assert.ok(after.seen >= 1);
 }
 
-// showAnswer learn sets next show afterFen
+// showAnswer learn: computer replies, next move is shown (outlined) on the position after the reply
 {
   local.clear();
   T.startLearn("italian-white");
@@ -244,7 +245,8 @@ assert.ok(T.onLearnMove({ from: "a2", to: "a3" }) === false || T.onLearnMove({ f
     assert.strictEqual(st2.learnPhase, "show");
     const next = T.currentUsStep();
     assert.ok(next);
-    assert.strictEqual(st2.fen, next.afterFen, "show phase should preview next move afterFen");
+    assert.strictEqual(st2.fen, next.beforeFen, "show phase shows the position after the opponent's reply");
+    assert.deepStrictEqual(st2.lastMove, { from: next.prev.from, to: next.prev.to }, "opponent reply highlighted");
   }
 }
 
@@ -339,6 +341,69 @@ assert.ok(T.onLearnMove({ from: "a2", to: "a3" }) === false || T.onLearnMove({ f
   T.leaveOpenings();
   assert.ok(ended >= 1, "leaving the tab ends a running test");
   assert.strictEqual(T.getState().mode, "catalog");
+}
+
+// ---- v3.2: the computer always plays the opponent's side in Learn / Recall ----
+{
+  // White lesson: after your correct move the computer answers with the book reply (highlighted)
+  local.clear();
+  T.startLearn("italian-white");
+  T.learnContinue(); T.learnContinue(); // recall
+  assert.strictEqual(T.onLearnMove({ from: "e2", to: "e4" }), true);
+  let st = T.getState();
+  const next = T.currentUsStep();
+  assert.strictEqual(next.san, "Nf3");
+  assert.strictEqual(st.fen, next.beforeFen, "board after computer's …e5");
+  assert.deepStrictEqual(st.lastMove, { from: "e7", to: "e5" });
+  assert.ok(/Opponent played <b>e5<\/b>/.test(st.feedback), "feedback names the computer's reply");
+  assert.strictEqual(new Chess(st.fen).turn(), "w", "always your turn after the reply");
+
+  // Black lesson: the computer opens as White before your first move
+  local.clear();
+  T.startLearn("e5-black");
+  st = T.getState();
+  assert.strictEqual(st.orientationColor, "b");
+  assert.deepStrictEqual(st.lastMove, { from: "e2", to: "e4" }, "computer played 1.e4");
+  assert.strictEqual(new Chess(st.fen).turn(), "b");
+  assert.strictEqual(T.currentUsStep().san, "e5");
+  // the learner can never move White's pieces: White moves are illegal in a Black-to-move position
+  T.learnContinue();
+  assert.strictEqual(T.onLearnMove({ from: "d2", to: "d4" }), false);
+
+  // Recall: each card starts with the computer playing the opponent's preceding move
+  local.clear();
+  T.startPractice("caro-black");
+  st = T.getState();
+  const card = st.practiceStep;
+  assert.strictEqual(card.prev.by, "them");
+  assert.strictEqual(st.fen, card.beforeFen);
+  assert.deepStrictEqual(st.lastMove, { from: card.prev.from, to: card.prev.to });
+
+  // With a real delay: input is locked until the reply has been played; leaving cancels it
+  T.setReplyDelay(30);
+  local.clear();
+  T.startLearn("italian-white");
+  T.learnContinue(); T.learnContinue();
+  assert.strictEqual(T.onLearnMove({ from: "e2", to: "e4" }), true);
+  st = T.getState();
+  assert.strictEqual(st.replyBusy, true, "computer thinking");
+  assert.strictEqual(st.fen, "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1", "your move shown first");
+  assert.deepStrictEqual(st.lastMove, { from: "e2", to: "e4" });
+  assert.strictEqual(T.onLearnMove({ from: "g1", to: "f3" }), false, "no input while the computer replies");
+  await new Promise((r) => setTimeout(r, 60));
+  st = T.getState();
+  assert.strictEqual(st.replyBusy, false);
+  assert.deepStrictEqual(st.lastMove, { from: "e7", to: "e5" });
+  // a pending reply never lands on a different lesson
+  T.learnContinue(); T.learnContinue();
+  T.onLearnMove({ from: "g1", to: "f3" });
+  T.startLearn("london-white");
+  await new Promise((r) => setTimeout(r, 60));
+  st = T.getState();
+  assert.strictEqual(st.lessonId, "london-white");
+  assert.strictEqual(st.fen, new Chess().fen(), "stale Italian reply dropped");
+  T.setReplyDelay(0);
+  console.log("auto-reply (computer plays the opponent) in Learn/Recall OK");
 }
 
 console.log("all openings tests passed");

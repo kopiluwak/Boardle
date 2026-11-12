@@ -1,6 +1,6 @@
 // Pure openings trainer logic (no DOM). Builds positions from lesson lines.
 
-import { Chess } from "../vendor/chess.js?v=3.1";
+import { Chess } from "../vendor/chess.js?v=3.2";
 
 /**
  * Apply a SAN move; throws if illegal.
@@ -23,7 +23,12 @@ export function buildSteps(lesson) {
     const beforeFen = g.fen();
     const m = g.move(node.san);
     if (!m) throw new Error(`Lesson ${lesson.id}: illegal ${node.san} at ply ${i}`);
+    const p = steps[i - 1];
     steps.push({
+      from: m.from,
+      to: m.to,
+      // the move just before this one (usually the opponent's) — replayed/highlighted by the UI
+      prev: p ? { san: p.san, from: p.from, to: p.to, by: p.by, idea: p.idea, beforeFen: p.beforeFen } : null,
       index: i,
       san: m.san,
       alts: (node.alts || []).map(String),

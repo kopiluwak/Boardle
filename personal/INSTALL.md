@@ -1,7 +1,7 @@
-# Install Boardle personal v3 (Openings Test mode + player profiles/history)
+# Install Boardle personal v3.2 (computer plays the opponent in Openings)
 
 This archive was **not** installed on your Mac for you; run these steps yourself.
-It contains everything from earlier versions (Openings tab, Carolina blue board, ⚙ colors) plus v3.
+It contains everything from earlier versions (Openings tab, Carolina blue board, ⚙ colors) plus v3, v3.1 and v3.2.
 
 ## 1. Back up the current folder
 ```bash
@@ -51,7 +51,23 @@ After swapping in this folder and restarting `python3 serve.py`, press **Cmd+Shi
 progress (localStorage and `~/.boardle/`) is untouched.
 
 When changing the code yourself, bump the version so browsers pick up the change:
-`python3 tools/stamp_version.py 3.2` (then `node test-version.mjs` checks every import is stamped).
+`python3 tools/stamp_version.py 3.3` (then `node test-version.mjs` checks every import is stamped).
+
+## What's new in v3.2: the computer plays your opponent
+- **Openings → Test**: you only move **your own side**. The computer plays the opponent's book move (short
+  animation + yellow last-move highlight) and answers each of your correct moves instantly. A try is 5 of your
+  moves; 5 tries. Moves are graded as you play them — 🟩 book move · 🟨 a book move from later in this line or
+  another variation, but not here · ⬛ not in the book. A non-🟩 move ends the try (the rest of the row stays
+  blank) and the board resets. No Submit/Undo needed in tests.
+- Main lines now start from move one (as Black, the computer opens 1.e4 / 1.d4); sidelines start at the
+  opponent's deviation. All 30 variations were extended so every test has 5 of your moves.
+- **Learn / Recall**: the computer also plays the opponent there (e.g. it opens 1.e4 when you learn a Black
+  repertoire); in Learn's "show" step your move is outlined on the board instead of being played for you.
+- Test results/history (solved, tries) are recorded per player exactly as before. An unfinished v3.1 test run
+  is simply restarted (its rows used the old both-sides format).
+
+Install exactly like before (steps 1–3), restart `python3 serve.py`, and press **Cmd+Shift+R** once.
+The page should report version 3.2 (view source: `<meta name="boardle-version" content="3.2">`).
 
 ## Applying only the v3 patch instead
 If your folder already matches the previous version (board colors, commit f82c606):

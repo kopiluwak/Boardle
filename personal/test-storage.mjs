@@ -20,7 +20,7 @@ globalThis.fetch = async (path, opts = {}) => {
   return { ok: false, status: 404, json: async () => ({}) };
 };
 
-const S = await import("./storage.js?v=3.1");
+const S = await import("./storage.js?v=3.2");
 const { store, logEvent, readLog, mergeData, mergeLogs, exportHistory, importHistory, migrateGuest, _test } = S;
 
 // guest mode = plain localStorage keys (pre-v3 behaviour)

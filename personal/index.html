@@ -3,10 +3,10 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="boardle-version" content="3.1">
+  <meta name="boardle-version" content="3.2">
   <title>Boardle — daily chess puzzle, Wordle style</title>
   <link rel="icon" href="pieces/wN.svg">
-  <link rel="stylesheet" href="style.css?v=3.1">
+  <link rel="stylesheet" href="style.css?v=3.2">
 </head>
 <body>
   <header>
@@ -63,8 +63,9 @@
     <p>A move must match the SAN exactly (<code>Qxa8#</code> ≠ <code>Qxa8</code>). Mini has 3 moves / 3 tries,
       Boardle 5/5, Mega 7/7, Maxi 9/9. Undo = Backspace.</p>
     <p><b>Openings</b> tab: beginner White &amp; Black lessons with ideas. Learn (show → hint → recall)
-      and spaced Recall practice. <b>Test</b> plays like Boardle: from a book position, enter the next 5 moves
-      (both sides) in 5 tries — the most common replies first, then rarer sidelines unlock as you solve them.</p>
+      and spaced Recall practice. You only ever move <b>your own side</b> — the computer plays the opponent's book replies.
+      <b>Test</b> plays like Boardle: find 5 of your moves in 5 tries, graded as you play (any non-🟩 move resets the board) —
+      the most common replies first, then rarer sidelines unlock as you solve them.</p>
     <p>👤 <b>Profile</b>: sign in (when running <code>serve.py</code> or the AWS server) so each player keeps their own
       history; export/import JSON as a backup.</p>
     <p class="muted">Based on <a href="https://github.com/rorycochrane/Boardle">Boardle</a> by Rory Cochrane.
@@ -117,7 +118,7 @@
     window.addEventListener("unhandledrejection", function (e) {
       errors.push(String(e && e.reason && (e.reason.message || e.reason)));
     });
-    var FILES = ["", "index.html", "app.js", "style.css", "config.js", "logic.js", "settings.js", "storage.js", "history.js",
+    var FILES = ["", "index.html", "app.js", "style.css", "config.js", "logic.js", "settings.js", "storage.js", "history.js", "anim.js",
       "openings/ui.js", "openings/data.js", "openings/trainer.js", "openings/schedule.js", "openings/testmode.js", "vendor/chess.js"];
     function freshReload(btn) {
       if (btn) { btn.disabled = true; btn.textContent = "Reloading…"; }
@@ -150,6 +151,6 @@
     });
   })();
   </script>
-  <script type="module" src="app.js?v=3.1"></script>
+  <script type="module" src="app.js?v=3.2"></script>
 </body>
 </html>

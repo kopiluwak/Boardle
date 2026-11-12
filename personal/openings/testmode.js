@@ -1,10 +1,12 @@
 // Openings TEST mode — pure logic (no DOM): variation ordering, unlocks,
 // "next due" selection, result recording. Used by openings/ui.js + app.js.
-import { Chess } from "../vendor/chess.js?v=3.1";
-import { LESSONS, TEST_TREES, lessonById } from "./data.js?v=3.1";
+import { Chess } from "../vendor/chess.js?v=3.2";
+import { LESSONS, TEST_TREES, lessonById } from "./data.js?v=3.2";
 
-export const TEST_PLIES = 5;   // moves per test row (both sides)
+export const TEST_MOVES = 5;   // the player's OWN moves per try (the computer plays the replies)
+export const TEST_PLIES = 2 * TEST_MOVES - 1; // plies a line needs after `start` (5 yours + 4 replies)
 export const TEST_TRIES = 5;   // rows / chances, same as the Boardle 5×5 tab
+export const RUN_FORMAT = 2;  // v3.2: rows hold only the player's moves (older saved runs are discarded)
 export const RESULTS_KEY = "boardle:openings:tests";
 export const runKey = (variationId) => `boardle:openings:testrun:${variationId}`;
 // Re-test intervals after the n-th solve (light spaced repetition).
@@ -32,23 +34,39 @@ export function variationById(id) {
   return allVariations().find((v) => v.id === id) || null;
 }
 
-/** Build the playable test: start FEN, 5-ply solution, highlighted last move. */
+/**
+ * Build the playable test.
+ *  fen       position where the player is to move (after the opponent's branching move)
+ *  introFen  position before that branching move (null when the test starts at move one as White);
+ *            the computer plays `introSan` from here at the start of every try
+ *  solution  the player's 5 book moves; replies[k] = the computer's book answer to solution[k]
+ *  plies     the whole line from `fen` on (shown/replayed when the test is over)
+ */
 function materialize(v, lesson, order, count) {
   const moves = splitMoves(v.moves);
   const g = new Chess();
   const prefix = [];
-  let last = null;
+  let last = null, introFen = null;
   for (let i = 0; i < v.start; i++) {
+    if (i === v.start - 1) introFen = g.fen();
     const m = g.move(moves[i]);
     if (!m) throw new Error(`${v.id}: illegal ${moves[i]} at ply ${i}`);
     prefix.push(m.san); last = m;
   }
   const fen = g.fen();
-  const solution = [];
-  for (let i = v.start; i < v.start + TEST_PLIES; i++) {
+  const plies = [], fens = [];
+  for (let i = v.start; i < moves.length; i++) {
+    fens.push(g.fen());
     const m = g.move(moves[i]);
     if (!m) throw new Error(`${v.id}: illegal ${moves[i]} at ply ${i}`);
-    solution.push(m.san);
+    plies.push(m.san);
+  }
+  if (plies.length < TEST_PLIES) throw new Error(`${v.id}: needs ${TEST_PLIES} plies after start`);
+  const solution = [], replies = [], userFens = [];
+  for (let k = 0; k < TEST_MOVES; k++) {
+    solution.push(plies[2 * k]);
+    userFens.push(fens[2 * k]);
+    replies.push(plies[2 * k + 1] || null);
   }
   const side = lesson ? lesson.side : (fen.split(" ")[1] === "w" ? "white" : "black");
   return {
@@ -66,11 +84,87 @@ function materialize(v, lesson, order, count) {
     start: v.start,
     prefix,            // SAN moves already played (shown to the player)
     fen,
-    solution,          // the 5 plies to find
+    introFen,
+    introSan: last ? last.san : null,
+    solution,          // the player's 5 book moves
+    replies,           // computer's book reply after each of them (last may be null)
+    userFens,          // position before each of the player's moves
+    plies,             // full line from fen
     last: last ? last.from + last.to : "",
     lastSan: last ? last.san : "",
     title: `${lesson ? lesson.title.replace(/ \(as (White|Black)\)$/, "") : ""} — ${v.main ? "main line (most common)" : `${v.name} ${v.branch}`}`,
   };
+}
+
+// ---------------- grading one try ----------------
+const posKey = (fen) => fen.split(" ").slice(0, 3).join(" ");
+const altIndex = {};
+/** position → book moves for the player's side, from every line of this opening + the lesson (incl. alts). */
+function bookMovesIndex(lessonId) {
+  if (altIndex[lessonId]) return altIndex[lessonId];
+  const idx = new Map();
+  const add = (fen, san) => { const k = posKey(fen); if (!idx.has(k)) idx.set(k, new Set()); idx.get(k).add(san); };
+  for (const v of TEST_TREES[lessonId] || []) {
+    const g = new Chess();
+    for (const san of splitMoves(v.moves)) { const f = g.fen(); const m = g.move(san); if (!m) break; add(f, m.san); }
+  }
+  const lesson = lessonById(lessonId);
+  if (lesson) {
+    const g = new Chess();
+    for (const node of lesson.line) {
+      const f = g.fen();
+      for (const alt of node.alts || []) { try { const t = new Chess(f); const m = t.move(alt); if (m) add(f, m.san); } catch { /* ignore */ } }
+      const m = g.move(node.san); if (!m) break; add(f, m.san);
+    }
+  }
+  altIndex[lessonId] = idx;
+  return idx;
+}
+
+/** Other book moves (not the expected one) for the player's k-th move in this variation. */
+export function bookAlternatives(v, k) {
+  const set = new Set(bookMovesIndex(v.lessonId).get(posKey(v.userFens[k])) || []);
+  set.delete(v.solution[k]);
+  return set;
+}
+
+/**
+ * Grade the player's k-th move:
+ *  "good" = the book move
+ *  "okay" = not now, but it is one of your later moves in this line, or another known book move here
+ *  "bad"  = not in the book
+ */
+export function gradeTestMove(v, k, san) {
+  if (san === v.solution[k]) return "good";
+  if (v.solution.slice(k + 1).includes(san)) return "okay";
+  if (bookAlternatives(v, k).has(san)) return "okay";
+  return "bad";
+}
+
+export function newAttempt() {
+  return { k: 0, moves: [], results: [], over: false, won: false };
+}
+
+/**
+ * Pure reducer for one try. Returns { att, reply }:
+ *  - correct move → the computer's book reply to play next (null after your 5th move: solved)
+ *  - any other move → the try ends there (att.over, not won); the board resets for the next try
+ */
+export function attemptMove(v, att, san) {
+  if (att.over) return { att, reply: null };
+  const res = gradeTestMove(v, att.k, san);
+  const k = att.k + 1;
+  const next = { k, moves: [...att.moves, san], results: [...att.results, res], over: false, won: false };
+  if (res !== "good") return { att: { ...next, over: true }, reply: null };
+  if (k >= TEST_MOVES) return { att: { ...next, over: true, won: true }, reply: null };
+  return { att: next, reply: v.replies[att.k] };
+}
+
+/** Grid row for a finished try: unplayed cells are blank ("skip"). */
+export function attemptRow(att) {
+  const moves = att.moves.slice(0, TEST_MOVES), results = att.results.slice(0, TEST_MOVES);
+  while (moves.length < TEST_MOVES) { moves.push(""); results.push("skip"); }
+  return { moves, results };
 }
 
 /** "1.e4 e5 2.Nf3 Nc6 3.Bc4 Nf6" */

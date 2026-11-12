@@ -10,8 +10,12 @@ A self-contained, zero-build recreation of [Boardle](https://github.com/rorycoch
 * 4 puzzle modes like the original: **Mini** (3 moves × 3 tries), **Boardle** (5×5), **Mega** (7×7), **Maxi** (9×9).
 * Fifth tab **Openings** (`#openings`): beginner White & Black lessons with move ideas, Learn (show → hint → recall) and spaced Recall practice. Progress uses separate `localStorage` keys from puzzle stats.
 * Larger board (up to `min(90vw, calc(100vh - 220px), 680px)`), default **Carolina blue / white** squares, and a **⚙ Board settings** dialog (custom colors + presets) stored under `boardle:settings:boardColors`.
-* **Openings → Test** mode: Wordle-style, same board/grid as Boardle — from a book position, enter the next
-  5 moves (both sides) in 5 tries. Main line (most common reply) first, then rarer replies unlock as you solve them.
+* **Openings → Test** mode: Wordle-style, same board/grid as Boardle — you play only **your own side** and the
+  computer plays the opponent's book replies (short animation + last-move highlight). Find 5 of your moves in
+  5 tries; each move is graded as you play it (🟩 book · 🟨 book elsewhere · ⬛ not book) and any non-🟩 move ends
+  the try and resets the board. Main line (most common reply) first, then rarer replies unlock as you solve them.
+* **The computer always plays the opponent** in Learn and Recall too: as Black it opens 1.e4 / 1.d4 for you,
+  then answers each of your moves with the book reply.
 * **👤 Profiles & history**: sign in (username + password) so each player has their own results, streaks,
   openings progress, test results and board colors; history view + JSON export/import.
 * 1,095 Lichess puzzles per mode (3 years of dailies), then it wraps around.
@@ -77,6 +81,7 @@ original Flask API performed.
 index.html        page shell + help/stats dialogs
 style.css         layout, board, tiles (Wordle colours)
 app.js            board UI (click or drag), promotion picker, rows/submit, stats, share
+anim.js           piece slide animation + computer reply delay (Openings)
 logic.js          pure logic: scoreGuess (same algorithm as original), day → puzzle index, emoji grid
 config.js         settings
 vendor/chess.js   chess.js 1.4.0 (BSD-2) – move legality + SAN
@@ -96,6 +101,17 @@ tests/            Python API tests
 ## Openings tab
 Original beginner lines (Italian, London, Queen's Gambit as White; Open Game, Caro-Kann, QGD as Black) with short idea notes written for this build — **not** copied from Chessable/Chess.com courses.
 Feature inspiration (methods only): active recall & spaced review ([Chessable MoveTrainer reviews](https://checkmatex.app/blog/chessable-review-i-tried-it-for-30-days), [ChessDir Chessable](https://chessdir.app/apps/chessable)); repertoire practice / coverage thinking ([Chessbook](https://chessbook.com/), [64 Squares review](https://64squares.substack.com/p/chessbook-review)); free exploration patterns ([Lichess features](https://lichess.org/features)); learn-by-playing passes ([Prologue comparison](https://prologuechess.com/en/blog/best-chess-opening-apps/)).
+Learn / Recall / Test never ask you to move the opponent's pieces: the computer plays them (≈0.5 s delay,
+slide animation, last-move highlight). In Learn's *show* phase your recommended move is outlined on the board
+instead of being played for you.
+
+Test design (v3.2): main lines start from move one (as Black the computer opens), sidelines start at the
+opponent's deviation, which the computer replays at the start of every try. A try is 5 of **your** moves; after
+each correct move the computer replies instantly with the book move. A wrong move can't be "continued" (the
+book has no reply to it), so the try stops there — remaining cells stay blank (⬜ in the share grid) — and the
+board resets for the next try. 🟨 means the move is one of your later moves in this line, or another book move
+from this opening at this position (other variations / Learn alternatives), but not the move for this line.
+
 Test-mode variation weights (`TEST_TREES` in `openings/data.js`) are **approximate**, rounded from Lichess
 opening-explorer frequencies, and are only used to order tests from most to least common.
 
