@@ -34,8 +34,12 @@ python3 serve.py          # http://localhost:8000   (or: python3 serve.py 8080)
 It must be served over http(s) (ES modules + `fetch` don't work from `file://`). Any static server works,
 e.g. `npx serve .`.
 
+Ports, environment variables, storage, accounts, tests, and AWS operations are in
+[RUNTIME.md](RUNTIME.md).
+
 ## Deploy to your website
 For sign-in + per-player history on AWS: serverless (CloudFront + S3 + Lambda + DynamoDB) with **`aws/README-DEPLOY.md`** / `aws/deploy.sh`, or a single server / App Runner with **`DEPLOY_AWS.md`**.
+Runtime details (architecture, env vars, logs, backups, teardown) are in [RUNTIME.md](RUNTIME.md).
 Plain static hosting below still works, with history kept in each browser.
 
 Upload the **contents of this folder** anywhere that serves static files — the root or a sub-path
@@ -88,6 +92,7 @@ vendor/chess.js   chess.js 1.4.0 (BSD-2) – move legality + SAN
 pieces/*.svg      cburnett piece set (from Lichess, GPLv2+)
 puzzles/*.json    3/5/7/9-move puzzles from the Lichess puzzle DB (CC0)
 serve.py          local server (static app + /api), stdlib only
+RUNTIME.md        runtime and operations (env vars, storage, tests, AWS)
 boardle_backend/  API server, password hashing, SQLite + DynamoDB storage
 storage.js        front-end storage: localStorage (Guest/static) or synced profile
 history.js        👤 profile / sign-in / history dialog
