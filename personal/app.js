@@ -1,11 +1,11 @@
-import { Chess } from "./vendor/chess.js";
-import { CONFIG } from "./config.js";
-import { scoreGuess, dayNumber, puzzleIndex, emojiGrid, shouldApplyStart } from "./logic.js";
-import { enterOpenings, leaveOpenings, openingsActive, openingsTabActive, wireOpeningsEvents } from "./openings/ui.js";
-import { wireSettingsUI } from "./settings.js";
-import { store, initStorage, logEvent } from "./storage.js";
-import { runKey, movetext, TEST_TRIES } from "./openings/testmode.js";
-import { wireProfileUI } from "./history.js";
+import { Chess } from "./vendor/chess.js?v=3.1";
+import { CONFIG } from "./config.js?v=3.1";
+import { scoreGuess, dayNumber, puzzleIndex, emojiGrid, shouldApplyStart } from "./logic.js?v=3.1";
+import { enterOpenings, leaveOpenings, openingsActive, openingsTabActive, wireOpeningsEvents } from "./openings/ui.js?v=3.1";
+import { wireSettingsUI } from "./settings.js?v=3.1";
+import { store, initStorage, logEvent } from "./storage.js?v=3.1";
+import { runKey, movetext, TEST_TRIES } from "./openings/testmode.js?v=3.1";
+import { wireProfileUI } from "./history.js?v=3.1";
 
 const $ = (s) => document.querySelector(s);
 const FILES = "abcdefgh";
@@ -52,7 +52,7 @@ async function start() {
   mode = CONFIG.modes[modeKey]; size = mode.size;
   puzzle = list[puzzleIndex(day, list.length)];
   st = store.get(stateKey(), null);
-  if (!st || st.id !== puzzle.id) st = { id: puzzle.id, guesses: [], results: [], done: false, won: false };
+  if (!st || typeof st !== "object" || st.id !== puzzle.id || !Array.isArray(st.guesses) || !Array.isArray(st.results)) st = { id: puzzle.id, guesses: [], results: [], done: false, won: false };
   resetRow();
   replayPly = puzzle.moves.length;
   const grid = $("#grid"); if (grid) grid.hidden = false;
@@ -403,10 +403,15 @@ $("#prevBtn").onclick = () => { replayPly = Math.max(0, replayPly - 1); render()
 $("#nextBtn").onclick = () => { replayPly = Math.min(puzzle.moves.length, replayPly + 1); render(); };
 $("#helpBtn").onclick = () => $("#help").showModal();
 $("#statsBtn").onclick = openStats;
-// Load the signed-in player's history (or Guest localStorage) before anything reads state
-await initStorage();
-wireSettingsUI({ $, toast });
-wireProfileUI({ $, toast });
+// Load the signed-in player's history (or Guest localStorage) before anything reads state.
+// Each init step is isolated so a failure in one (bad old localStorage, server hiccup,
+// settings/profile UI) can never leave the board blank.
+function safely(label, fn) {
+  try { return fn(); } catch (err) { console.error(`[boardle] ${label} failed:`, err); return undefined; }
+}
+try { await initStorage(); } catch (err) { console.error("[boardle] storage init failed:", err); }
+safely("settings", () => wireSettingsUI({ $, toast }));
+safely("profile", () => wireProfileUI({ $, toast }));
 document.querySelectorAll("dialog .close").forEach((b) => (b.onclick = () => b.closest("dialog").close()));
 window.addEventListener("keydown", (e) => {
   if (document.querySelector("dialog[open]")) return;
@@ -417,11 +422,17 @@ window.addEventListener("keydown", (e) => {
   if (st && st.done && e.key === "ArrowRight") $("#nextBtn").click();
 });
 window.addEventListener("hashchange", start);
-wireOpeningsEvents({ startTest: startOpeningTest, endTest: endOpeningTest });
+safely("openings", () => wireOpeningsEvents({ startTest: startOpeningTest, endTest: endOpeningTest }));
 const initialHash = location.hash.slice(1);
-if (!localStorage.getItem("boardle:seenHelp")) {
-  localStorage.setItem("boardle:seenHelp", "1");
-  // Don't block a deep-link straight into Openings with the puzzle help dialog
-  if (initialHash !== CONFIG.openings.hash) $("#help").showModal();
-}
-start();
+safely("help", () => {
+  if (!localStorage.getItem("boardle:seenHelp")) {
+    localStorage.setItem("boardle:seenHelp", "1");
+    // Don't block a deep-link straight into Openings with the puzzle help dialog
+    if (initialHash !== CONFIG.openings.hash) $("#help").showModal();
+  }
+});
+window.__boardleBooted = true;
+Promise.resolve().then(start).catch((err) => {
+  console.error("[boardle] start failed:", err);
+  if (window.__boardleBootFailed) { window.__boardleBooted = false; window.__boardleBootFailed(String(err && err.message || err)); }
+});

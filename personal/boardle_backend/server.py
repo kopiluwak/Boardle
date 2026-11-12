@@ -122,6 +122,10 @@ def make_handler(app: App):
             self.send_header("Referrer-Policy", "same-origin")
             if urlsplit(self.path).path.startswith("/api/"):
                 self.send_header("Cache-Control", "no-store")
+            else:
+                # Static files: always revalidate (cheap 304s via Last-Modified). Without this,
+                # browsers cache heuristically and can mix old + new modules after an update.
+                self.send_header("Cache-Control", "no-cache")
             super().end_headers()
 
         def _blocked(self, path):

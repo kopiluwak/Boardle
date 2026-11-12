@@ -1,12 +1,12 @@
 // node openings/test-testmode.mjs — Test-mode lines (legality), ordering, unlocks, next-due, results
 import assert from "assert";
-import { Chess } from "../vendor/chess.js";
-import { LESSONS, TEST_TREES } from "./data.js";
-import { scoreGuess } from "../logic.js";
+import { Chess } from "../vendor/chess.js?v=3.1";
+import { LESSONS, TEST_TREES } from "./data.js?v=3.1";
+import { scoreGuess } from "../logic.js?v=3.1";
 import {
   orderedVariations, allVariations, variationById, buildVariationTree, recordResult, isUnlocked,
   statusOf, nextTest, randomTest, followingVariation, testSummary, movetext, TEST_PLIES, RETEST_DAYS,
-} from "./testmode.js";
+} from "./testmode.js?v=3.1";
 
 // ---- every opening has ≥4 variations; every line is legal SAN; tests start on the player's move ----
 const seen = new Set();

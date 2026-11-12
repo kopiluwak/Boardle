@@ -44,6 +44,12 @@ Upload the **contents of this folder** anywhere that serves static files — the
 * **Netlify / Cloudflare Pages / Vercel**: drag-and-drop the folder or point at the repo; no build command, output dir = `.`.
 * Make sure `.js` is served as `text/javascript` (all mainstream hosts do).
 
+## Updating / cache busting
+All local module URLs carry `?v=<version>` (see `<meta name="boardle-version">` in `index.html`). After
+editing any `.js`/`.css`, run `python3 tools/stamp_version.py <new-version>`; `node test-version.mjs` verifies
+it. `serve.py` sends `Cache-Control: no-cache` for static files, and a boot guard in `index.html` shows a
+"Reload fresh copy" button if the app fails to start.
+
 ## Customise — `config.js`
 * `startDate` — the date of puzzle #1 (default 2026-11-03). Day number = days since then + 1, using the
   player's local date (the original used America/Los_Angeles midnight).

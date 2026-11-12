@@ -1,16 +1,16 @@
 // node openings/test-openings.mjs — legality, schedule, trainer, UI seams, start-race helper
 import assert from "assert";
-import { Chess } from "../vendor/chess.js";
-import { LESSONS, lessonById } from "./data.js";
+import { Chess } from "../vendor/chess.js?v=3.1";
+import { LESSONS, lessonById } from "./data.js?v=3.1";
 import {
   buildSteps, learnerCards, gradeAttempt, playSan, advancePastThem,
   nextLearnPhase, LEARN_PHASES, progressSummary, isAcceptable,
-} from "./trainer.js";
+} from "./trainer.js?v=3.1";
 import {
   makeCard, reviewCard, noteExposure, isDue, dueCount, pickSession, INTERVALS_MS,
-} from "./schedule.js";
-import { shouldApplyStart } from "../logic.js";
-import { CONFIG } from "../config.js";
+} from "./schedule.js?v=3.1";
+import { shouldApplyStart } from "../logic.js?v=3.1";
+import { CONFIG } from "../config.js?v=3.1";
 
 // --- every lesson line is legal ---
 for (const lesson of LESSONS) {
@@ -152,7 +152,7 @@ function installDomMock() {
 }
 
 const { local } = installDomMock();
-const ui = await import("./ui.js");
+const ui = await import("./ui.js?v=3.1");
 const T = ui._test;
 
 // Handler name seam: currentUsStep must exist; currentUserStep must not

@@ -1,7 +1,7 @@
 // node test.mjs — sanity checks for scoring + every bundled puzzle's solution is legal
 import { readFileSync } from "fs";
-import { Chess } from "./vendor/chess.js";
-import { scoreGuess, dayNumber, puzzleIndex, emojiGrid } from "./logic.js";
+import { Chess } from "./vendor/chess.js?v=3.1";
+import { scoreGuess, dayNumber, puzzleIndex, emojiGrid } from "./logic.js?v=3.1";
 import assert from "assert";
 
 assert.deepStrictEqual(scoreGuess(["a","b","c"],["a","b","c"]), ["good","good","good"]);

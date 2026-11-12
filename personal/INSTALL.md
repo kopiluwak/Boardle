@@ -38,6 +38,21 @@ Signed out, the app behaves exactly as before (history stays in the browser as "
   Export / Import JSON.
 - **AWS-ready backend**: see `DEPLOY_AWS.md` (Lightsail/EC2 + SQLite, or App Runner + DynamoDB, Dockerfile).
 
+## v3.1: fix for a blank board after updating
+v3 could show only the header and an empty black board if your browser still had files cached from an
+earlier version (it mixed the old `openings/data.js` with the new `openings/testmode.js`, so none of the
+app's code ran). v3.1 fixes this for good:
+- every app file URL carries the release version (`app.js?v=3.1`, `./data.js?v=3.1`, …), so old and new
+  files can never mix;
+- `serve.py` now sends `Cache-Control: no-cache` for app files (the browser always checks for updates);
+- if the app ever fails to start, the board shows **"Reload fresh copy"** instead of staying blank.
+
+After swapping in this folder and restarting `python3 serve.py`, press **Cmd+Shift+R** once. Your
+progress (localStorage and `~/.boardle/`) is untouched.
+
+When changing the code yourself, bump the version so browsers pick up the change:
+`python3 tools/stamp_version.py 3.2` (then `node test-version.mjs` checks every import is stamped).
+
 ## Applying only the v3 patch instead
 If your folder already matches the previous version (board colors, commit f82c606):
 ```bash
@@ -49,6 +64,6 @@ Then hard-refresh. (Don't apply it to the folder from this ZIP — it already co
 
 ## Tests (optional)
 ```bash
-node test.mjs && node openings/test-openings.mjs && node openings/test-testmode.mjs && node test-storage.mjs
+node test.mjs && node openings/test-openings.mjs && node openings/test-testmode.mjs && node test-storage.mjs && node test-version.mjs
 python3 -m unittest discover -s tests
 ```

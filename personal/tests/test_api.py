@@ -76,6 +76,12 @@ class ApiTest(unittest.TestCase):
         s, body, h = c.call("GET", "/app.js")
         self.assertEqual(s, 200)
         self.assertTrue(h["Content-Type"].startswith("text/javascript"))
+        # static files must revalidate so old cached modules can't mix with a new release
+        self.assertEqual(h["Cache-Control"], "no-cache")
+        s, _, h = c.call("GET", "/openings/data.js?v=3.1")
+        self.assertEqual((s, h["Cache-Control"]), (200, "no-cache"))
+        s, _, h = c.call("GET", "/api/me")
+        self.assertEqual(h["Cache-Control"], "no-store")
         for p in ("/serve.py", "/boardle_backend/server.py", "/tests/test_api.py", "/.git/config", "/requirements.txt"):
             s, _, _ = c.call("GET", p)
             self.assertEqual(s, 404, p)

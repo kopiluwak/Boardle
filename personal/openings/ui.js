@@ -1,23 +1,23 @@
 // Openings tab UI — additive; puzzle mode DOM is hidden while this is active.
-import { Chess } from "../vendor/chess.js";
-import { LESSONS, lessonById } from "./data.js";
+import { Chess } from "../vendor/chess.js?v=3.1";
+import { LESSONS, lessonById } from "./data.js?v=3.1";
 import {
   buildSteps, learnerCards, gradeAttempt,
   advancePastThem, progressSummary,
-} from "./trainer.js";
+} from "./trainer.js?v=3.1";
 import {
   makeCard, reviewCard, noteExposure, pickSession, dueCount,
-} from "./schedule.js";
+} from "./schedule.js?v=3.1";
 import {
   orderedVariations, statusOf, nextTest, randomTest, recordResult, followingVariation,
   testSummary, variationById, RESULTS_KEY, TEST_TRIES, movetext,
-} from "./testmode.js";
+} from "./testmode.js?v=3.1";
 
 const FILES = "abcdefgh";
 const $ = (s, root = document) => root.querySelector(s);
 
 // Per-player storage (localStorage when signed out / no server; synced profile when signed in)
-import { store, logEvent } from "../storage.js";
+import { store, logEvent } from "../storage.js?v=3.1";
 
 const CARDS_KEY = "boardle:openings:cards";
 const META_KEY = "boardle:openings:meta";

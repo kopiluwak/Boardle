@@ -1,7 +1,7 @@
 // Openings TEST mode — pure logic (no DOM): variation ordering, unlocks,
 // "next due" selection, result recording. Used by openings/ui.js + app.js.
-import { Chess } from "../vendor/chess.js";
-import { LESSONS, TEST_TREES, lessonById } from "./data.js";
+import { Chess } from "../vendor/chess.js?v=3.1";
+import { LESSONS, TEST_TREES, lessonById } from "./data.js?v=3.1";
 
 export const TEST_PLIES = 5;   // moves per test row (both sides)
 export const TEST_TRIES = 5;   // rows / chances, same as the Boardle 5×5 tab
