@@ -1,0 +1,5 @@
+# Local use (python3 serve.py with SQLite) needs NOTHING from this file — stdlib only.
+# Only the DynamoDB backend (BOARDLE_STORAGE=dynamodb, e.g. on AWS) needs boto3:
+boto3>=1.28
+# Optional, for running the DynamoDB adapter test locally:
+#   pip install "moto[dynamodb]>=5"

@@ -8,17 +8,16 @@ import {
 import {
   makeCard, reviewCard, noteExposure, pickSession, dueCount,
 } from "./schedule.js";
+import {
+  orderedVariations, statusOf, nextTest, randomTest, recordResult, followingVariation,
+  testSummary, variationById, RESULTS_KEY, TEST_TRIES, movetext,
+} from "./testmode.js";
 
 const FILES = "abcdefgh";
 const $ = (s, root = document) => root.querySelector(s);
 
-const store = {
-  get: (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } },
-  set: (k, v) => {
-    try { localStorage.setItem(k, JSON.stringify(v)); return true; }
-    catch { return false; }
-  },
-};
+// Per-player storage (localStorage when signed out / no server; synced profile when signed in)
+import { store, logEvent } from "../storage.js";
 
 const CARDS_KEY = "boardle:openings:cards";
 const META_KEY = "boardle:openings:meta";
@@ -26,7 +25,10 @@ const META_KEY = "boardle:openings:meta";
 let active = false;
 let lesson = null;
 let steps = [];
-let mode = "catalog"; // catalog | learn | practice
+let mode = "catalog"; // catalog | learn | practice | tests (variation list) | test (board run by app.js)
+let testLessonId = null; // opening whose variation list is shown (null = all openings)
+let currentTest = null;  // variation being tested
+let hooks = { startTest: null, endTest: null }; // injected by app.js (shared Wordle-style board)
 let learnIdx = 0;
 let learnPhase = "show"; // show | hint | recall
 let practiceQueue = [];
@@ -171,6 +173,7 @@ function advanceLearnAfterUs(step) {
     feedback = banner;
     mode = "catalog";
     store.set(META_KEY, { ...(store.get(META_KEY, {})), lastLesson: lesson.id, lastFinished: Date.now() });
+    logEvent({ kind: "opening-learn", lesson: lesson.id, title: lesson.title });
     setFen(new Chess().fen());
     orientationColor = "w";
     return;
@@ -437,6 +440,7 @@ function goCatalog(opts = {}) {
 
 function renderCatalog() {
   const prog = progressSummary(cardsMap(), LESSONS);
+  const tsum = testSummary(testResults());
   const due = dueCount(Object.values(cardsMap()));
   const white = LESSONS.filter((l) => l.side === "white");
   const black = LESSONS.filter((l) => l.side === "black");
@@ -460,6 +464,14 @@ function renderCatalog() {
     <p class="op-lead">Beginner repertoires with ideas — Learn walks you through (no mastery inflate); Recall quizzes due moves for spaced credit. Stored separately from puzzle stats.</p>
     <div class="op-actions">
       <button type="button" class="primary" id="opPracticeAll">Recall due (${due})</button>
+    </div>
+    <div class="op-test-box">
+      <div class="op-test-head"><b>Test mode</b> <span class="muted">5 moves · 5 tries, like Boardle · ${tsum.solved}/${tsum.total} variations solved</span></div>
+      <div class="op-actions">
+        <button type="button" class="primary" id="opTestNext">Test: next due</button>
+        <button type="button" id="opTestRandom">Test: random</button>
+        <button type="button" id="opTestAll">All variations</button>
+      </div>
     </div>
     <h3 class="op-h">As White</h3>
     <div class="op-grid">${white.map(card).join("")}</div>
@@ -517,11 +529,138 @@ function renderPracticePanel() {
   `;
 }
 
+// ---------------- Test mode (Wordle-style, shared board in app.js) ----------------
+function testResults() { return store.get(RESULTS_KEY, {}); }
+
+const STATUS_LABEL = { new: "new", retry: "retry", due: "re-test due", solved: "solved", locked: "locked" };
+const STATUS_ICON = { new: "●", retry: "↻", due: "⏰", solved: "✓", locked: "🔒" };
+
+function renderTestsPanel() {
+  const results = testResults();
+  const lessons = testLessonId ? [lessonById(testLessonId)] : LESSONS;
+  const opts = [`<option value="">All openings</option>`, ...LESSONS.map((l) =>
+    `<option value="${l.id}" ${l.id === testLessonId ? "selected" : ""}>${l.title}</option>`)].join("");
+  const next = nextTest(results, testLessonId);
+  const sections = lessons.map((l) => {
+    const ordered = orderedVariations(l.id);
+    const rows = ordered.map((v, i) => {
+      const st = statusOf(results, ordered, i);
+      const r = results[v.id];
+      const meta = r && r.attempts.length
+        ? `${r.solved}/${r.attempts.length} solved${r.bestTries ? ` · best ${r.bestTries}/${TEST_TRIES}` : ""}`
+        : (st === "locked" ? `solve “${ordered[i - 1].main ? "main line" : ordered[i - 1].name}” to unlock` : "not tried");
+      const label = v.main ? `Main line <small>(most common)</small>` : `${v.name} <small>${v.branch}</small>`;
+      return `<button type="button" class="op-var ${st} ${next && next.id === v.id ? "next" : ""}" ${st === "locked" ? "disabled" : `data-test-id="${v.id}"`}>
+        <span class="op-var-ico" aria-hidden="true">${STATUS_ICON[st]}</span>
+        <span class="op-var-main"><span>${i + 1}. ${label}</span>
+          <span class="op-meta">~${v.weight}% of games · ${STATUS_LABEL[st]} · ${meta}</span></span>
+      </button>`;
+    }).join("");
+    return `<h3 class="op-h">${l.title} <span class="muted">${l.side === "white" ? "you play White" : "you play Black"}</span></h3>
+      <div class="op-vars">${rows}</div>`;
+  }).join("");
+  return `
+    <div class="op-toolbar">
+      <button type="button" id="opBack">← Lessons</button>
+      <select id="opTestLesson" aria-label="Opening">${opts}</select>
+    </div>
+    ${banner ? `<div class="op-banner" role="status">${banner}</div>` : ""}
+    <p class="op-lead">Each test shows a book position right after the opponent's reply (highlighted). Enter the next
+      <b>5 moves for both sides</b>, then Submit — 🟩 right move/slot · 🟨 in the line, wrong slot · ⬛ not in the line. 5 tries.
+      Variations go from the most common reply to rarer ones; solving one unlocks the next.</p>
+    <div class="op-actions">
+      <button type="button" class="primary" id="opTestNext">${next ? `Next due: ${next.lessonTitle} · ${next.main ? "main line" : next.name}` : "Next due"}</button>
+      <button type="button" id="opTestRandom">Random</button>
+    </div>
+    ${sections}
+  `;
+}
+
+function showTests(lessonId = null) {
+  clearPracticeTimer();
+  practiceReveal = false;
+  practiceSessionId += 1;
+  if (mode === "test" && hooks.endTest) hooks.endTest();
+  mode = "tests";
+  testLessonId = lessonId;
+  currentTest = null;
+  setFen(new Chess().fen());
+  orientationColor = lessonId && lessonById(lessonId)?.side === "black" ? "b" : "w";
+  showPanelChrome();
+  render();
+}
+
+function startTestById(id) {
+  const v = variationById(id);
+  if (v) startTest(v);
+}
+function startNextTest(lessonId = null) {
+  const v = nextTest(testResults(), lessonId);
+  if (v) startTest(v); else { banner = "No test available."; render(); }
+}
+function startRandomTest(lessonId = null) {
+  const v = randomTest(testResults(), lessonId);
+  if (v) startTest(v);
+}
+
+/** Hand the board to app.js' Wordle-style engine for this variation. */
+function startTest(v) {
+  clearPracticeTimer();
+  practiceReveal = false;
+  practiceSessionId += 1;
+  banner = "";
+  currentTest = v;
+  if (!hooks.startTest) { mode = "tests"; render(); return false; }
+  mode = "test";
+  $("#openingsPanel")?.classList.add("hidden");
+  hooks.startTest(v, {
+    onFinish: (won, tries) => finishTest(v, won, tries),
+    onExit: () => showTests(testLessonId),
+    nextAfter: () => nextAfter(v),
+    pickNext: (kind) => (kind === "random" ? randomTest(testResults(), testLessonId) : nextTest(testResults(), testLessonId)),
+  });
+  return true;
+}
+
+/** After a result: the next less-common reply in the same opening if unlocked, else the next due test. */
+function nextAfter(v) {
+  const results = testResults();
+  const follow = followingVariation(v.id);
+  if (follow) {
+    const ordered = orderedVariations(v.lessonId);
+    if (statusOf(results, ordered, follow.order) !== "locked" && !(results[follow.id]?.solved)) return follow;
+  }
+  return nextTest(results, testLessonId);
+}
+
+/** Record a finished test: per-variation results + history log. Returns the updated record. */
+function finishTest(v, won, tries) {
+  const date = new Date().toISOString();
+  const results = recordResult(testResults(), v.id, { solved: won, tries, date });
+  store.set(RESULTS_KEY, results);
+  logEvent({ kind: "opening-test", lesson: v.lessonId, variation: v.id, title: v.title, won: !!won, tries });
+  const follow = followingVariation(v.id);
+  const unlocked = won && follow && !(testResults()[follow.id]?.attempts?.length);
+  return { record: results[v.id], unlocked: unlocked ? follow : null };
+}
+
+function showPanelChrome() {
+  $("#puzzleChrome")?.classList.add("hidden");
+  $("#openingsPanel")?.classList.remove("hidden");
+  const controls = $("#controls"); if (controls) controls.hidden = true;
+  const replay = $("#replay"); if (replay) replay.hidden = true;
+  const solution = $("#solution"); if (solution) solution.hidden = true;
+  const grid = $("#grid"); if (grid) grid.hidden = true;
+  const tb = $("#testBar"); if (tb) tb.hidden = true;
+}
+
 function render() {
   const panel = $("#openingsPanel");
   if (!panel) return;
+  if (mode === "test") return; // the shared puzzle board/grid is showing (app.js)
   if (mode === "catalog") panel.innerHTML = renderCatalog();
   else if (mode === "learn") panel.innerHTML = renderLearnPanel();
+  else if (mode === "tests") panel.innerHTML = renderTestsPanel();
   else panel.innerHTML = renderPracticePanel();
 
   panel.querySelectorAll(".op-card").forEach((btn) => {
@@ -534,13 +673,21 @@ function render() {
       const row = document.createElement("div");
       row.className = "op-actions op-pick-actions";
       row.innerHTML = `<button type="button" class="primary" id="opLearn">Learn</button>
-        <button type="button" id="opRecallOne">Recall</button>`;
+        <button type="button" id="opRecallOne">Recall</button>
+        <button type="button" id="opTestOne">Test</button>`;
       btn.after(row);
       $("#opLearn").onclick = () => startLearn(id);
       $("#opRecallOne").onclick = () => startPractice(id);
+      $("#opTestOne").onclick = () => showTests(id);
     };
   });
   const pa = $("#opPracticeAll"); if (pa) pa.onclick = () => startPractice(null);
+  const tn = $("#opTestNext"); if (tn) tn.onclick = () => startNextTest(mode === "tests" ? testLessonId : null);
+  const tr = $("#opTestRandom"); if (tr) tr.onclick = () => startRandomTest(mode === "tests" ? testLessonId : null);
+  const ta = $("#opTestAll"); if (ta) ta.onclick = () => showTests(null);
+  panel.querySelectorAll("[data-test-id]").forEach((b) => { b.onclick = () => startTestById(b.dataset.testId); });
+  const tl = $("#opTestLesson");
+  if (tl) tl.onchange = () => showTests(tl.value || null);
   const back = $("#opBack"); if (back) back.onclick = () => goCatalog({ clearFeedback: !banner });
   const cont = $("#opContinue"); if (cont) cont.onclick = learnContinue;
   const show = $("#opShowAns");
@@ -565,6 +712,7 @@ function render() {
   if (info) {
     if (mode === "catalog") info.textContent = "Openings · pick a lesson to Learn, or Recall due moves";
     else if (mode === "learn") info.textContent = `Openings · Learn · ${lesson?.title || ""} · phase ${learnPhase}`;
+    else if (mode === "tests") info.textContent = "Openings · Test · most common replies first, then sidelines (solve one to unlock the next)";
     else info.textContent = `Openings · Recall · ${lessonTitleForStep(practiceStep)} · ${practiceQueue.length} remaining`;
   }
 }
@@ -576,11 +724,15 @@ function onKey(e) {
   if (e.key === "Enter" && mode === "practice" && practiceReveal) practiceNext();
 }
 
-export function openingsActive() { return active; }
+/** True while the Openings panel owns the board (false during a Test run, which uses the puzzle engine). */
+export function openingsActive() { return active && mode !== "test"; }
+/** True whenever the Openings tab is selected (including Test runs). */
+export function openingsTabActive() { return active; }
 
 export function enterOpenings() {
   clearPracticeTimer();
   practiceReveal = false;
+  if (mode === "test" && hooks.endTest) hooks.endTest();
   active = true;
   mode = "catalog";
   // Keep banner if returning mid-session message; clear transient feedback only when empty banner
@@ -588,16 +740,14 @@ export function enterOpenings() {
   lesson = null;
   setFen(new Chess().fen());
   orientationColor = "w";
-  $("#puzzleChrome")?.classList.add("hidden");
-  $("#openingsPanel")?.classList.remove("hidden");
-  const controls = $("#controls"); if (controls) controls.hidden = true;
-  const replay = $("#replay"); if (replay) replay.hidden = true;
-  const solution = $("#solution"); if (solution) solution.hidden = true;
-  const grid = $("#grid"); if (grid) grid.hidden = true;
+  showPanelChrome();
   render();
 }
 
 export function leaveOpenings() {
+  if (mode === "test" && hooks.endTest) hooks.endTest();
+  mode = "catalog";
+  currentTest = null;
   clearPracticeTimer();
   practiceReveal = false;
   practiceSessionId += 1;
@@ -607,11 +757,12 @@ export function leaveOpenings() {
   const grid = $("#grid"); if (grid) grid.hidden = false;
 }
 
-export function wireOpeningsEvents() {
+export function wireOpeningsEvents(h = {}) {
+  hooks = { ...hooks, ...h };
   const board = $("#board");
-  if (board) board.addEventListener("pointerdown", (e) => { if (active) onPointerDown(e); });
-  window.addEventListener("pointermove", (e) => { if (active) onPointerMove(e); });
-  window.addEventListener("pointerup", (e) => { if (active) onPointerUp(e); });
+  if (board) board.addEventListener("pointerdown", (e) => { if (openingsActive()) onPointerDown(e); });
+  window.addEventListener("pointermove", (e) => { if (openingsActive()) onPointerMove(e); });
+  window.addEventListener("pointerup", (e) => { if (openingsActive()) onPointerUp(e); });
   window.addEventListener("keydown", onKey);
 }
 
@@ -622,6 +773,7 @@ export const _test = {
     active, mode, learnIdx, learnPhase, practiceReveal, practiceSessionId,
     practiceQueue: [...practiceQueue], practiceStep, practiceMixed, feedback, banner,
     lessonId: lesson?.id || null, fen, orientationColor,
+    testLessonId, currentTestId: currentTest?.id || null,
   }),
   setState: ( partial ) => {
     if ("mode" in partial) mode = partial.mode;
@@ -636,4 +788,6 @@ export const _test = {
   onLearnMove, onPracticeMove, currentUsStep, goCatalog,
   cardsMap, ensureCardsFor, clearPracticeTimer, advanceLearnAfterUs,
   commitUserMove, render, enterOpenings, leaveOpenings,
+  showTests, startTest, startTestById, startNextTest, finishTest, nextAfter, testResults,
+  setHooks: (h) => { hooks = { ...hooks, ...h }; },
 };

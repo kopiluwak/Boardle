@@ -1,4 +1,5 @@
-// Board appearance settings — CSS custom properties + localStorage.
+// Board appearance settings — CSS custom properties + per-player storage (storage.js).
+import { store } from "./storage.js";
 // Does not touch puzzle or openings keys.
 
 const COLORS_KEY = "boardle:settings:boardColors";
@@ -48,9 +49,8 @@ function normalizeHex(v, fallback) {
 
 export function loadBoardColors() {
   try {
-    const raw = localStorage.getItem(COLORS_KEY);
-    if (!raw) return { ...DEFAULT_COLORS };
-    const parsed = JSON.parse(raw);
+    const parsed = store.get(COLORS_KEY, null);
+    if (!parsed) return { ...DEFAULT_COLORS };
     return {
       light: normalizeHex(parsed?.light, DEFAULT_COLORS.light),
       dark: normalizeHex(parsed?.dark, DEFAULT_COLORS.dark),
@@ -65,12 +65,7 @@ export function saveBoardColors(colors) {
     light: normalizeHex(colors.light, DEFAULT_COLORS.light),
     dark: normalizeHex(colors.dark, DEFAULT_COLORS.dark),
   };
-  try {
-    localStorage.setItem(COLORS_KEY, JSON.stringify(next));
-    return true;
-  } catch {
-    return false;
-  }
+  return store.set(COLORS_KEY, next);
 }
 
 /** Tune overlay contrast for last-move / selection / legal-move markers. */
@@ -98,7 +93,7 @@ export function applyBoardColors(colors) {
 }
 
 export function resetBoardColors() {
-  try { localStorage.removeItem(COLORS_KEY); } catch { /* ignore */ }
+  store.remove(COLORS_KEY);
   return applyBoardColors(DEFAULT_COLORS);
 }
 

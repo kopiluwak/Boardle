@@ -160,3 +160,124 @@ export function lessonById(id) {
 export function lessonsForSide(side) {
   return LESSONS.filter((l) => l.side === side);
 }
+
+// ---------------------------------------------------------------------------
+// TEST MODE — weighted variation trees (Wordle-style 5-ply opening tests)
+//
+// Each opening has a list of variations. Every variation is a full SAN line
+// from the initial position plus `start`: the ply where the test begins.
+// The move at ply `start - 1` is the opponent's reply that defines the branch
+// (it is shown highlighted, like the opponent's last move in a daily puzzle),
+// and the player must then enter the next 5 plies (both sides).
+//
+// `weight` = APPROXIMATE share (%) of games in this opening family that reach
+// the branch, rounded from Lichess opening-explorer / masters frequencies as
+// of 2025-26. They are deliberately coarse and only used for ordering
+// ("most common responses first"); they are not exact statistics.
+// `main: true` pins the lesson's main line first regardless of weight.
+// buildVariationTree() (openings/testmode.js) merges these lines into a tree.
+// ---------------------------------------------------------------------------
+export const TEST_TREES = {
+  "italian-white": [
+    { id: "it-main", main: true, weight: 38, name: "Main line (most common)", branch: "3…Bc5 Giuoco Piano",
+      moves: "e4 e5 Nf3 Nc6 Bc4 Bc5 c3 Nf6 d3 d6 O-O", start: 6,
+      note: "Quiet Giuoco Pianissimo: c3 + d3, then castle." },
+    { id: "it-two-knights", weight: 32, name: "vs 3…Nf6", branch: "Two Knights Defence",
+      moves: "e4 e5 Nf3 Nc6 Bc4 Nf6 d3 Bc5 c3 d6 O-O", start: 6,
+      note: "4.d3 keeps e4 protected and transposes to your Italian setup." },
+    { id: "it-petrov", weight: 9, name: "vs 2…Nf6", branch: "Petrov (Russian) Defence",
+      moves: "e4 e5 Nf3 Nf6 Nxe5 d6 Nf3 Nxe4 d4", start: 4,
+      note: "Take on e5, drop the knight back after …d6, then grab the centre with d4." },
+    { id: "it-philidor", weight: 7, name: "vs 2…d6", branch: "Philidor Defence",
+      moves: "e4 e5 Nf3 d6 d4 exd4 Nxd4 Nf6 Nc3", start: 4,
+      note: "Open the centre with d4 and develop with tempo." },
+    { id: "it-hungarian", weight: 5, name: "vs 3…Be7", branch: "Hungarian Defence",
+      moves: "e4 e5 Nf3 Nc6 Bc4 Be7 d4 exd4 Nxd4 Nf6 Nc3", start: 6,
+      note: "A passive reply — strike with d4 for a free centre." },
+  ],
+  "london-white": [
+    { id: "lon-main", main: true, weight: 16, name: "Main line (most common)", branch: "3…e6 Classical setup",
+      moves: "d4 d5 Nf3 Nf6 Bf4 e6 e3 Bd6 Bg3 O-O Bd3", start: 6,
+      note: "Meet …Bd6 with Bg3 and keep the London structure." },
+    { id: "lon-c5", weight: 14, name: "vs 3…c5", branch: "Early …c5 and …Qb6",
+      moves: "d4 d5 Nf3 Nf6 Bf4 c5 e3 Nc6 c3 Qb6 Qb3", start: 6,
+      note: "c3 + Qb3 neutralises the …Qb6 hit on b2." },
+    { id: "lon-kid", weight: 12, name: "vs 1…Nf6 2…g6", branch: "King's Indian setup",
+      moves: "d4 Nf6 Nf3 g6 Bf4 Bg7 e3 O-O Be2", start: 4,
+      note: "Same London triangle; Be2 is solid against the fianchetto." },
+    { id: "lon-bf5", weight: 5, name: "vs 3…Bf5", branch: "Symmetrical London",
+      moves: "d4 d5 Nf3 Nf6 Bf4 Bf5 e3 e6 Bd3 Bxd3 Qxd3", start: 6,
+      note: "Offer the bishop trade; recapture with the queen toward the centre." },
+  ],
+  "qg-white": [
+    { id: "qg-main", main: true, weight: 40, name: "Main line (most common)", branch: "2…e6 Queen's Gambit Declined",
+      moves: "d4 d5 c4 e6 Nc3 Nf6 Bg5 Be7 e3", start: 4,
+      note: "Develop, pin with Bg5, then solid e3." },
+    { id: "qg-slav", weight: 30, name: "vs 2…c6", branch: "Slav Defence",
+      moves: "d4 d5 c4 c6 Nf3 Nf6 Nc3 dxc4 a4", start: 4,
+      note: "a4 stops …b5 so you win back c4." },
+    { id: "qg-qga", weight: 20, name: "vs 2…dxc4", branch: "Queen's Gambit Accepted",
+      moves: "d4 d5 c4 dxc4 Nf3 Nf6 e3 e6 Bxc4", start: 4,
+      note: "No need to rush — e3 and Bxc4 regain the pawn." },
+    { id: "qg-chigorin", weight: 4, name: "vs 2…Nc6", branch: "Chigorin Defence",
+      moves: "d4 d5 c4 Nc6 Nf3 Bg4 cxd5 Bxf3 gxf3", start: 4,
+      note: "Take on d5 and accept doubled pawns for the bishop pair." },
+    { id: "qg-albin", weight: 3, name: "vs 2…e5", branch: "Albin Countergambit",
+      moves: "d4 d5 c4 e5 dxe5 d4 Nf3 Nc6 g3", start: 4,
+      note: "Keep the pawn, develop Nf3 and fianchetto." },
+  ],
+  "e5-black": [
+    { id: "e5-italian", main: true, weight: 30, name: "Main line (most common)", branch: "3.Bc4 Italian",
+      moves: "e4 e5 Nf3 Nc6 Bc4 Nf6 d3 Bc5 c3 d6", start: 5,
+      note: "…Nf6 hits e4; after d3 go …Bc5 and …d6." },
+    { id: "e5-ruy", weight: 22, name: "vs 3.Bb5", branch: "Ruy Lopez",
+      moves: "e4 e5 Nf3 Nc6 Bb5 a6 Ba4 Nf6 O-O Be7", start: 5,
+      note: "Morphy Defence: …a6, …Nf6, …Be7 — the Closed Ruy." },
+    { id: "e5-scotch", weight: 9, name: "vs 3.d4", branch: "Scotch Game",
+      moves: "e4 e5 Nf3 Nc6 d4 exd4 Nxd4 Nf6 Nxc6 bxc6", start: 5,
+      note: "Take on d4, develop …Nf6, recapture toward the centre." },
+    { id: "e5-vienna", weight: 8, name: "vs 2.Nc3", branch: "Vienna Game",
+      moves: "e4 e5 Nc3 Nf6 f4 d5 fxe5 Nxe4", start: 3,
+      note: "Meet f4 with the central …d5 counter." },
+    { id: "e5-four-knights", weight: 7, name: "vs 3.Nc3", branch: "Four Knights",
+      moves: "e4 e5 Nf3 Nc6 Nc3 Nf6 Bb5 Bb4 O-O O-O", start: 5,
+      note: "Symmetry is fine: mirror and castle." },
+    { id: "e5-kings-gambit", weight: 5, name: "vs 2.f4", branch: "King's Gambit",
+      moves: "e4 e5 f4 exf4 Nf3 g5 h4 g4", start: 3,
+      note: "Accept and hold the pawn with …g5." },
+  ],
+  "caro-black": [
+    { id: "caro-classical", main: true, weight: 23, name: "Main line (most common)", branch: "3.Nc3 Classical",
+      moves: "e4 c6 d4 d5 Nc3 dxe4 Nxe4 Bf5 Ng3 Bg6", start: 5,
+      note: "Classic …dxe4 and …Bf5 before …e6." },
+    { id: "caro-advance", weight: 22, name: "vs 3.e5", branch: "Advance Variation",
+      moves: "e4 c6 d4 d5 e5 Bf5 Nf3 e6 Be2 c5", start: 5,
+      note: "Bishop out first, then …e6 and the …c5 break." },
+    { id: "caro-exchange", weight: 16, name: "vs 3.exd5", branch: "Exchange Variation",
+      moves: "e4 c6 d4 d5 exd5 cxd5 Bd3 Nc6 c3 Nf6", start: 5,
+      note: "Recapture with the c-pawn and develop calmly." },
+    { id: "caro-two-knights", weight: 12, name: "vs 2.Nf3 & 3.Nc3", branch: "Two Knights",
+      moves: "e4 c6 Nf3 d5 Nc3 Bg4 h3 Bxf3 Qxf3 e6", start: 5,
+      note: "Pin with …Bg4, give the bishop for the knight, then …e6." },
+    { id: "caro-panov", weight: 5, name: "vs 4.c4", branch: "Panov-Botvinnik Attack",
+      moves: "e4 c6 d4 d5 exd5 cxd5 c4 Nf6 Nc3 e6 Nf3 Be7", start: 7,
+      note: "Develop …Nf6, …e6, …Be7 against the isolated pawn." },
+  ],
+  "qgd-black": [
+    { id: "qgd-main", main: true, weight: 22, name: "Main line (most common)", branch: "3.Nc3 Orthodox",
+      moves: "d4 d5 c4 e6 Nc3 Nf6 Bg5 Be7", start: 3,
+      note: "Decline with …e6, develop, break the pin with …Be7." },
+    { id: "qgd-london", weight: 20, name: "vs 2.Bf4", branch: "London System",
+      moves: "d4 d5 Bf4 Nf6 e3 e6 Nf3 c5", start: 3,
+      note: "Solid …Nf6/…e6 then hit d4 with …c5." },
+    { id: "qgd-nf3", weight: 13, name: "vs 3.Nf3", branch: "Queen's Gambit with 3.Nf3",
+      moves: "d4 d5 c4 e6 Nf3 Nf6 Nc3 Be7 Bf4 O-O", start: 5,
+      note: "Same setup; castle early against the Bf4 lines." },
+    { id: "qgd-exchange", weight: 6, name: "vs 4.cxd5", branch: "Exchange Variation",
+      moves: "d4 d5 c4 e6 Nc3 Nf6 cxd5 exd5 Bg5 Be7 e3 O-O", start: 7,
+      note: "Recapture with the e-pawn: your c8-bishop is freed." },
+    { id: "qgd-catalan", weight: 3, name: "vs 3.g3", branch: "Catalan",
+      moves: "d4 d5 c4 e6 g3 Nf6 Bg2 Be7 Nf3 O-O", start: 5,
+      note: "Develop and castle; …dxc4 ideas come later." },
+  ],
+};

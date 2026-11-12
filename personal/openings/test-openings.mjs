@@ -312,4 +312,33 @@ assert.ok(T.onLearnMove({ from: "a2", to: "a3" }) === false || T.onLearnMove({ f
   globalThis.localStorage.setItem = real;
 }
 
+// Test mode wiring: catalog → variation list → shared board hook → result recorded → back
+{
+  local.clear();
+  const started = [];
+  let ended = 0;
+  T.setHooks({ startTest: (v, cb) => started.push({ v, cb }), endTest: () => { ended++; } });
+  T.showTests("italian-white");
+  assert.strictEqual(T.getState().mode, "tests");
+  let html = document.querySelector("#openingsPanel").innerHTML;
+  assert.ok(html.includes("Main line") && html.includes("vs 3…Nf6") && html.includes("locked"), "variation list shows order + locks");
+  T.startNextTest("italian-white");
+  assert.strictEqual(T.getState().mode, "test");
+  assert.strictEqual(started.at(-1).v.id, "it-main");
+  const fin = started.at(-1).cb.onFinish(true, 2);
+  assert.strictEqual(fin.unlocked.id, "it-two-knights");
+  assert.strictEqual(T.testResults()["it-main"].bestTries, 2);
+  assert.strictEqual(started.at(-1).cb.nextAfter().id, "it-two-knights", "advance to next less-common reply");
+  const log = JSON.parse(local.get("boardle:history:log"));
+  assert.strictEqual(log.at(-1).kind, "opening-test");
+  started.at(-1).cb.onExit();
+  assert.strictEqual(T.getState().mode, "tests");
+  html = document.querySelector("#openingsPanel").innerHTML;
+  assert.ok(/data-test-id="it-two-knights"/.test(html), "two knights now unlocked");
+  T.startTestById("it-two-knights");
+  T.leaveOpenings();
+  assert.ok(ended >= 1, "leaving the tab ends a running test");
+  assert.strictEqual(T.getState().mode, "catalog");
+}
+
 console.log("all openings tests passed");

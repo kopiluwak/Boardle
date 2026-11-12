@@ -3,11 +3,17 @@
 A self-contained, zero-build recreation of [Boardle](https://github.com/rorycochrane/Boardle)
 (the original lives one folder up): a daily chess puzzle played Wordle-style.
 
-* **Pure static site** — HTML + CSS + vanilla JavaScript (ES modules). No React, no npm, no database.
-* **Python only for tooling** — a tiny `serve.py` for local play and `tools/build_puzzles.py` to regenerate puzzles.
+* **Static front end** — HTML + CSS + vanilla JavaScript (ES modules). No React, no npm build.
+* **Optional tiny backend** — `serve.py` (stdlib Python) serves the app plus a JSON API for player profiles and
+  per-player history (SQLite locally, DynamoDB on AWS — see `DEPLOY_AWS.md`). Hosted as plain static files the
+  app still works; history then stays in the browser.
 * 4 puzzle modes like the original: **Mini** (3 moves × 3 tries), **Boardle** (5×5), **Mega** (7×7), **Maxi** (9×9).
 * Fifth tab **Openings** (`#openings`): beginner White & Black lessons with move ideas, Learn (show → hint → recall) and spaced Recall practice. Progress uses separate `localStorage` keys from puzzle stats.
 * Larger board (up to `min(90vw, calc(100vh - 220px), 680px)`), default **Carolina blue / white** squares, and a **⚙ Board settings** dialog (custom colors + presets) stored under `boardle:settings:boardColors`.
+* **Openings → Test** mode: Wordle-style, same board/grid as Boardle — from a book position, enter the next
+  5 moves (both sides) in 5 tries. Main line (most common reply) first, then rarer replies unlock as you solve them.
+* **👤 Profiles & history**: sign in (username + password) so each player has their own results, streaks,
+  openings progress, test results and board colors; history view + JSON export/import.
 * 1,095 Lichess puzzles per mode (3 years of dailies), then it wraps around.
 
 ## How to play
@@ -25,6 +31,9 @@ It must be served over http(s) (ES modules + `fetch` don't work from `file://`).
 e.g. `npx serve .`.
 
 ## Deploy to your website
+For sign-in + per-player history on AWS (Lightsail/EC2 or App Runner + DynamoDB) follow **`DEPLOY_AWS.md`**.
+Plain static hosting below still works, with history kept in each browser.
+
 Upload the **contents of this folder** anywhere that serves static files — the root or a sub-path
 (e.g. `https://example.com/boardle/`); all paths are relative. You only need:
 `index.html style.css app.js logic.js config.js settings.js openings/ vendor/ pieces/ puzzles/`
@@ -48,6 +57,9 @@ curl -LO https://database.lichess.org/lichess_db_puzzle.csv.zst     # ~300 MB, C
 .venv/bin/python tools/build_puzzles.py lichess_db_puzzle.csv.zst --per-size 1095
 node test.mjs      # verifies scoring + that every bundled solution is legal in chess.js
 node openings/test-openings.mjs   # lesson legality + spaced-review / trainer invariants
+node openings/test-testmode.mjs   # test-mode lines legal, ordering / unlocks / next-due
+node test-storage.mjs             # storage modes, migration, merge, export/import
+python3 -m unittest discover -s tests   # API: register/login/history isolation (SQLite; DynamoDB via moto)
 ```
 Filters (tunable flags): popularity ≥ 85, ≥ 300 plays, rating deviation ≤ 90; deterministic shuffle (`--seed`).
 Puzzle format (`puzzles/<n>.json`): `{id, fen, last, moves[], rating, url}` where `fen` is the position *after*
@@ -64,16 +76,22 @@ config.js         settings
 vendor/chess.js   chess.js 1.4.0 (BSD-2) – move legality + SAN
 pieces/*.svg      cburnett piece set (from Lichess, GPLv2+)
 puzzles/*.json    3/5/7/9-move puzzles from the Lichess puzzle DB (CC0)
-serve.py          stdlib local server
+serve.py          local server (static app + /api), stdlib only
+boardle_backend/  API server, password hashing, SQLite + DynamoDB storage
+storage.js        front-end storage: localStorage (Guest/static) or synced profile
+history.js        👤 profile / sign-in / history dialog
+Dockerfile, DEPLOY_AWS.md, requirements.txt   AWS deployment
 tools/build_puzzles.py   puzzle generator
 test.mjs          node sanity tests (puzzle scoring + legality)
-openings/         openings trainer (data, schedule, trainer, ui) + tests
+openings/         openings trainer (data, schedule, trainer, testmode, ui) + tests
+tests/            Python API tests
 ```
 
 ## Openings tab
 Original beginner lines (Italian, London, Queen's Gambit as White; Open Game, Caro-Kann, QGD as Black) with short idea notes written for this build — **not** copied from Chessable/Chess.com courses.
 Feature inspiration (methods only): active recall & spaced review ([Chessable MoveTrainer reviews](https://checkmatex.app/blog/chessable-review-i-tried-it-for-30-days), [ChessDir Chessable](https://chessdir.app/apps/chessable)); repertoire practice / coverage thinking ([Chessbook](https://chessbook.com/), [64 Squares review](https://64squares.substack.com/p/chessbook-review)); free exploration patterns ([Lichess features](https://lichess.org/features)); learn-by-playing passes ([Prologue comparison](https://prologuechess.com/en/blog/best-chess-opening-apps/)).
-No fabricated popularity percentages — lessons teach ideas, not database stats.
+Test-mode variation weights (`TEST_TREES` in `openings/data.js`) are **approximate**, rounded from Lichess
+opening-explorer frequencies, and are only used to order tests from most to least common.
 
 
 ## Differences from the original

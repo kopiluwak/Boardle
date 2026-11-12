@@ -1,21 +1,21 @@
 import { Chess } from "./vendor/chess.js";
 import { CONFIG } from "./config.js";
 import { scoreGuess, dayNumber, puzzleIndex, emojiGrid, shouldApplyStart } from "./logic.js";
-import { enterOpenings, leaveOpenings, openingsActive, wireOpeningsEvents } from "./openings/ui.js";
+import { enterOpenings, leaveOpenings, openingsActive, openingsTabActive, wireOpeningsEvents } from "./openings/ui.js";
 import { wireSettingsUI } from "./settings.js";
+import { store, initStorage, logEvent } from "./storage.js";
+import { runKey, movetext, TEST_TRIES } from "./openings/testmode.js";
+import { wireProfileUI } from "./history.js";
 
 const $ = (s) => document.querySelector(s);
 const FILES = "abcdefgh";
-const store = {
-  get: (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } },
-  set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } },
-};
 
 let modeKey, mode, size, puzzle, day, todayNum, isToday;
 let st;            // per-puzzle state {guesses:[], results:[], done, won}
 let current = [];  // SAN moves for the row being entered
 let game;          // chess.js instance for the active row
 let selected = null, pendingPromo = null, replayPly = 0, drag = null;
+let testCtx = null; // { v, cb } while an Openings Test runs on this board
 const cache = {};
 
 // ---------- loading ----------
@@ -36,7 +36,7 @@ async function start() {
     enterOpenings();
     return;
   }
-  if (openingsActive()) leaveOpenings();
+  if (openingsTabActive()) leaveOpenings();
   const requested = (hash in CONFIG.modes) ? hash : CONFIG.defaultMode;
   modeKey = requested;
   mode = CONFIG.modes[modeKey]; size = mode.size;
@@ -61,7 +61,7 @@ async function start() {
   renderTabs();
   render();
 }
-const stateKey = () => `boardle:${modeKey}:day${day}`;
+const stateKey = () => (testCtx ? runKey(testCtx.v.id) : `boardle:${modeKey}:day${day}`);
 const statsKey = () => `boardle:stats:${modeKey}`;
 
 function resetRow() { current = []; selected = null; game = new Chess(puzzle.fen); }
@@ -76,6 +76,59 @@ function squaresInOrder() {
     out.push(FILES[file] + rank);
   }
   return out;
+}
+
+// ---------- Openings Test mode (same engine as the puzzle tabs) ----------
+function startOpeningTest(v, cb) {
+  startGen++; // drop any in-flight puzzle fetch
+  testCtx = { v, cb, finished: null };
+  modeKey = "openings-test";
+  mode = { label: "Openings Test", size: v.solution.length };
+  size = v.solution.length;
+  puzzle = { id: v.id, fen: v.fen, moves: v.solution, last: v.last, rating: null };
+  st = store.get(stateKey(), null);
+  if (!st || st.id !== v.id || st.done) st = { id: v.id, guesses: [], results: [], done: false, won: false };
+  resetRow();
+  replayPly = puzzle.moves.length;
+  $("#openingsPanel")?.classList.add("hidden");
+  $("#puzzleChrome")?.classList.remove("hidden");
+  const grid = $("#grid"); if (grid) grid.hidden = false;
+  render();
+}
+function endOpeningTest() {
+  testCtx = null;
+  const tb = $("#testBar"); if (tb) { tb.hidden = true; tb.innerHTML = ""; }
+}
+function renderTestBar() {
+  const tb = $("#testBar");
+  if (!tb) return;
+  if (!testCtx) { tb.hidden = true; return; }
+  const { v } = testCtx;
+  const rows = st.guesses.length / size;
+  const fin = testCtx.finished;
+  let status = `Try ${Math.min(rows + 1, TEST_TRIES)}/${TEST_TRIES}`;
+  if (st.done) status = st.won ? `Solved in ${rows}/${TEST_TRIES} 🎉` : `Out of tries — line shown above`;
+  const next = st.done && testCtx.cb.nextAfter ? testCtx.cb.nextAfter() : null;
+  tb.hidden = false;
+  tb.innerHTML = `
+    <div class="tb-row">
+      <button type="button" id="tbBack">← Variations</button>
+      <span class="tb-count">Variation ${v.order + 1}/${v.count}</span>
+    </div>
+    <div class="tb-title">${v.lessonTitle} — ${v.main ? "main line <small>(most common)</small>" : `${v.name} <small>${v.branch}</small>`}</div>
+    <div class="tb-line"><span class="muted">Position:</span> ${movetext(v.prefix)} <span class="muted">· ~${v.weight}% of games</span></div>
+    <div class="tb-status">${status}</div>
+    ${st.done ? `<div class="tb-note">${v.note}</div>
+      ${fin && fin.unlocked ? `<div class="tb-unlock">🔓 Unlocked: ${fin.unlocked.name} <small>${fin.unlocked.branch}</small></div>` : ""}
+      <div class="tb-row">
+        <button type="button" id="tbRetry">Retry</button>
+        ${next ? `<button type="button" class="primary" id="tbNext">Next: ${next.lessonId === v.lessonId ? (next.main ? "main line" : next.name) : next.lessonTitle} →</button>` : ""}
+        <button type="button" id="tbShare">Share</button>
+      </div>` : ""}`;
+  $("#tbBack").onclick = () => { const cb = testCtx.cb; endOpeningTest(); cb.onExit(); };
+  const r = $("#tbRetry"); if (r) r.onclick = () => { store.remove(runKey(v.id)); startOpeningTest(v, testCtx.cb); };
+  const n = $("#tbNext"); if (n) n.onclick = () => startOpeningTest(next, testCtx.cb);
+  const sh = $("#tbShare"); if (sh) sh.onclick = share;
 }
 
 function boardForView() {
@@ -213,9 +266,15 @@ function submit() {
   const rows = st.guesses.length / size;
   if (won || rows >= size) {
     st.done = true; st.won = won; replayPly = 0;
-    if (isToday) updateStats(won, rows);
+    if (testCtx) {
+      testCtx.finished = testCtx.cb.onFinish(won, rows) || null;
+    } else {
+      if (isToday) updateStats(won, rows);
+      logEvent({ kind: "puzzle", mode: modeKey, day, id: puzzle.id, won, tries: rows, size, archive: !isToday });
+    }
   }
-  store.set(stateKey(), st);
+  if (testCtx && st.done) store.remove(stateKey()); // results recorded; next start is a fresh attempt
+  else store.set(stateKey(), st);
   resetRow(); render();
   if (st.done) setTimeout(() => openStats(), 400);
 }
@@ -235,6 +294,11 @@ function updateStats(won, rows) {
 
 function shareText() {
   const rows = st.won ? st.guesses.length / size : "X";
+  if (testCtx) {
+    const v = testCtx.v;
+    return `${CONFIG.title} Openings · ${v.lessonTitle} — ${v.main ? "main line" : `${v.name} ${v.branch}`} ${rows}/${size}\n` +
+      emojiGrid(st.results, size) + `\n${location.origin}${location.pathname}#${CONFIG.openings.hash}`;
+  }
   return `${CONFIG.title} ${mode.label === CONFIG.title ? "" : mode.label + " "}#${day} ${rows}/${size}\n` +
     emojiGrid(st.results, size) + `\n${location.origin}${location.pathname}#${modeKey}`;
 }
@@ -251,9 +315,27 @@ function toast(msg) {
 }
 
 function openStats() {
+  if (testCtx && st) {
+    const v = testCtx.v;
+    const rec = (store.get("boardle:openings:tests", {})[v.id]) || null;
+    $("#statsBody").innerHTML = `
+      <p class="result">${st.done ? (st.won ? `Solved in ${st.guesses.length / size}/${size}! 🎉` : "Out of tries.") : "Test in progress."}
+        ${st.done ? `Line: <b>${puzzle.moves.join(" ")}</b>` : ""}</p>
+      <p>${v.title}</p>
+      ${rec ? `<div class="nums"><div><b>${rec.attempts.length}</b>Attempts</div><div><b>${rec.solved}</b>Solved</div>
+        <div><b>${rec.bestTries ?? "–"}</b>Best</div></div>` : ""}
+      <button type="button" id="statsHistory">Full history</button>
+      ${st.done ? `<button id="shareBtn" class="primary">Share</button>` : ""}`;
+    const sb = $("#shareBtn"); if (sb) sb.onclick = share;
+    $("#statsHistory").onclick = () => { $("#stats").close(); $("#profileBtn").click(); };
+    $("#stats").showModal();
+    return;
+  }
   if (openingsActive()) {
     $("#statsBody").innerHTML = `<p class="muted">Puzzle statistics stay on Mini / Boardle / Mega / Maxi.
-      Openings progress is tracked inside the Openings tab (separate from these stats).</p>`;
+      Openings progress is tracked inside the Openings tab (separate from these stats).</p>
+      <button type="button" id="statsHistory">Full history</button>`;
+    $("#statsHistory").onclick = () => { $("#stats").close(); $("#profileBtn").click(); };
     $("#stats").showModal();
     return;
   }
@@ -271,8 +353,10 @@ function openStats() {
     <div class="nums"><div><b>${s.played}</b>Played</div><div><b>${s.played ? Math.round((100 * s.wins) / s.played) : 0}</b>Win %</div>
     <div><b>${streak}</b>Streak</div><div><b>${s.maxStreak}</b>Max</div></div>
     <h4>Guess distribution (${mode.label})</h4>${bars}
+    <button type="button" id="statsHistory">Full history</button>
     ${st.done ? `<button id="shareBtn" class="primary">Share</button>` : ""}`;
   const sb = $("#shareBtn"); if (sb) sb.onclick = share;
+  $("#statsHistory").onclick = () => { $("#stats").close(); $("#profileBtn").click(); };
   $("#stats").showModal();
 }
 
@@ -285,7 +369,7 @@ function renderTabs() {
   const modeLinks = Object.entries(CONFIG.modes).map(([k, m]) =>
     `<a href="#${k}" class="${k === activeMode ? "on" : ""}">${m.label}<small>${m.size}×${m.size}</small></a>`).join("");
   const op = CONFIG.openings;
-  const opLink = `<a href="#${op.hash}" class="${onOpenings ? "on" : ""}">${op.label}<small>learn</small></a>`;
+  const opLink = `<a href="#${op.hash}" class="${onOpenings ? "on" : ""}">${op.label}<small>learn · test</small></a>`;
   $("#tabs").innerHTML = modeLinks + opLink;
 }
 
@@ -293,7 +377,12 @@ function render() {
   if (openingsActive() || !puzzle) return;
   renderBoard(); renderGrid();
   const turn = puzzle.fen.split(" ")[1] === "w" ? "White" : "Black";
-  $("#info").innerHTML = `#${day}${isToday ? "" : " (archive)"} · ${turn} to move · find the next ${size} moves (both sides) · rating ${puzzle.rating}`;
+  if (testCtx) {
+    $("#info").innerHTML = `Openings · Test · ${turn} to move · enter the next ${size} book moves (both sides) · ${TEST_TRIES} tries`;
+  } else {
+    $("#info").innerHTML = `#${day}${isToday ? "" : " (archive)"} · ${turn} to move · find the next ${size} moves (both sides) · rating ${puzzle.rating}`;
+  }
+  renderTestBar();
   $("#controls").hidden = st.done;
   $("#replay").hidden = !st.done;
   $("#submitBtn").disabled = !(rowFull() && current.length);
@@ -314,7 +403,10 @@ $("#prevBtn").onclick = () => { replayPly = Math.max(0, replayPly - 1); render()
 $("#nextBtn").onclick = () => { replayPly = Math.min(puzzle.moves.length, replayPly + 1); render(); };
 $("#helpBtn").onclick = () => $("#help").showModal();
 $("#statsBtn").onclick = openStats;
+// Load the signed-in player's history (or Guest localStorage) before anything reads state
+await initStorage();
 wireSettingsUI({ $, toast });
+wireProfileUI({ $, toast });
 document.querySelectorAll("dialog .close").forEach((b) => (b.onclick = () => b.closest("dialog").close()));
 window.addEventListener("keydown", (e) => {
   if (document.querySelector("dialog[open]")) return;
@@ -325,7 +417,7 @@ window.addEventListener("keydown", (e) => {
   if (st && st.done && e.key === "ArrowRight") $("#nextBtn").click();
 });
 window.addEventListener("hashchange", start);
-wireOpeningsEvents();
+wireOpeningsEvents({ startTest: startOpeningTest, endTest: endOpeningTest });
 const initialHash = location.hash.slice(1);
 if (!localStorage.getItem("boardle:seenHelp")) {
   localStorage.setItem("boardle:seenHelp", "1");

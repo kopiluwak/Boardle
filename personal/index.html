@@ -14,7 +14,10 @@
       <button id="settingsBtn" class="icon" title="Board settings" aria-label="Board settings">⚙</button>
     </div>
     <h1>Boardle</h1>
-    <button id="statsBtn" class="icon" title="Statistics" aria-label="Statistics">📊</button>
+    <div class="header-actions">
+      <button id="statsBtn" class="icon" title="Statistics" aria-label="Statistics">📊</button>
+      <button id="profileBtn" class="icon" title="Profile &amp; history" aria-label="Profile and history">👤</button>
+    </div>
   </header>
   <nav id="tabs"></nav>
   <p id="info"></p>
@@ -34,6 +37,7 @@
       </div>
     </section>
     <section class="right">
+      <div id="testBar" hidden aria-live="polite"></div>
       <div id="openingsPanel" class="hidden" aria-live="polite"></div>
       <div id="puzzleChrome">
         <div id="solution" hidden></div>
@@ -58,7 +62,10 @@
     <p>A move must match the SAN exactly (<code>Qxa8#</code> ≠ <code>Qxa8</code>). Mini has 3 moves / 3 tries,
       Boardle 5/5, Mega 7/7, Maxi 9/9. Undo = Backspace.</p>
     <p><b>Openings</b> tab: beginner White &amp; Black lessons with ideas. Learn (show → hint → recall)
-      and spaced Recall practice — progress is stored separately from daily puzzle stats.</p>
+      and spaced Recall practice. <b>Test</b> plays like Boardle: from a book position, enter the next 5 moves
+      (both sides) in 5 tries — the most common replies first, then rarer sidelines unlock as you solve them.</p>
+    <p>👤 <b>Profile</b>: sign in (when running <code>serve.py</code> or the AWS server) so each player keeps their own
+      history; export/import JSON as a backup.</p>
     <p class="muted">Based on <a href="https://github.com/rorycochrane/Boardle">Boardle</a> by Rory Cochrane.
       Puzzles from the <a href="https://database.lichess.org/#puzzles">Lichess puzzle database</a> (CC0).
       Opening ideas are original notes for this personal build (not commercial course text).</p>
@@ -67,6 +74,12 @@
     <button class="close">✕</button>
     <h3>Statistics</h3>
     <div id="statsBody"></div>
+  </dialog>
+
+  <dialog id="profile">
+    <button class="close">✕</button>
+    <h3>Profile &amp; history</h3>
+    <div id="profileBody"></div>
   </dialog>
 
   <dialog id="settings">
