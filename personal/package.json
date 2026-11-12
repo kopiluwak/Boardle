@@ -1,0 +1,8 @@
+{
+  "name": "boardle-personal",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node test.mjs && node openings/test-openings.mjs && node openings/test-testmode.mjs && node test-storage.mjs && python3 -m unittest discover -s tests"
+  }
+}

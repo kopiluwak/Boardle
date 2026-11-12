@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Boardle — daily chess puzzle, Wordle style</title>
+  <link rel="icon" href="pieces/wN.svg">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <div class="header-actions">
+      <button id="helpBtn" class="icon" title="How to play" aria-label="How to play">?</button>
+      <button id="settingsBtn" class="icon" title="Board settings" aria-label="Board settings">⚙</button>
+    </div>
+    <h1>Boardle</h1>
+    <div class="header-actions">
+      <button id="statsBtn" class="icon" title="Statistics" aria-label="Statistics">📊</button>
+      <button id="profileBtn" class="icon" title="Profile &amp; history" aria-label="Profile and history">👤</button>
+    </div>
+  </header>
+  <nav id="tabs"></nav>
+  <p id="info"></p>
+  <main>
+    <section class="left">
+      <div id="boardWrap">
+        <div id="board"></div>
+        <div id="promo" hidden></div>
+      </div>
+      <div id="controls" class="row">
+        <button id="undoBtn">↺ Undo</button>
+        <button id="submitBtn" class="primary">Submit</button>
+      </div>
+      <div id="replay" class="row" hidden>
+        <button id="prevBtn">◀</button>
+        <button id="nextBtn">▶</button>
+      </div>
+    </section>
+    <section class="right">
+      <div id="testBar" hidden aria-live="polite"></div>
+      <div id="openingsPanel" class="hidden" aria-live="polite"></div>
+      <div id="puzzleChrome">
+        <div id="solution" hidden></div>
+        <div id="grid"></div>
+      </div>
+    </section>
+  </main>
+  <div id="toast" hidden></div>
+
+  <dialog id="help">
+    <button class="close">✕</button>
+    <h3>How to play</h3>
+    <p>Each day there's a new Lichess puzzle. Your opponent has just moved (highlighted).
+      Find the best continuation <b>for both sides</b> by playing moves on the board — they fill the tiles
+      in standard algebraic notation (SAN).</p>
+    <p>When the row is full, press <b>Submit</b> (or Enter). Tiles change colour:</p>
+    <div class="example">
+      <div class="tile good">Rxh2+</div><div class="tile bad">Kf1</div><div class="tile bad">Rdh8</div>
+      <div class="tile okay">Nb1</div><div class="tile bad">Qf2+</div>
+    </div>
+    <p>🟩 right move, right slot · 🟨 in the solution, wrong slot · ⬛ not in the solution.</p>
+    <p>A move must match the SAN exactly (<code>Qxa8#</code> ≠ <code>Qxa8</code>). Mini has 3 moves / 3 tries,
+      Boardle 5/5, Mega 7/7, Maxi 9/9. Undo = Backspace.</p>
+    <p><b>Openings</b> tab: beginner White &amp; Black lessons with ideas. Learn (show → hint → recall)
+      and spaced Recall practice. <b>Test</b> plays like Boardle: from a book position, enter the next 5 moves
+      (both sides) in 5 tries — the most common replies first, then rarer sidelines unlock as you solve them.</p>
+    <p>👤 <b>Profile</b>: sign in (when running <code>serve.py</code> or the AWS server) so each player keeps their own
+      history; export/import JSON as a backup.</p>
+    <p class="muted">Based on <a href="https://github.com/rorycochrane/Boardle">Boardle</a> by Rory Cochrane.
+      Puzzles from the <a href="https://database.lichess.org/#puzzles">Lichess puzzle database</a> (CC0).
+      Opening ideas are original notes for this personal build (not commercial course text).</p>
+  </dialog>
+  <dialog id="stats">
+    <button class="close">✕</button>
+    <h3>Statistics</h3>
+    <div id="statsBody"></div>
+  </dialog>
+
+  <dialog id="profile">
+    <button class="close">✕</button>
+    <h3>Profile &amp; history</h3>
+    <div id="profileBody"></div>
+  </dialog>
+
+  <dialog id="settings">
+    <button class="close">✕</button>
+    <h3>Board settings</h3>
+    <p class="muted">Larger board uses more of your screen. Colors apply to every tab (including Openings) and save on this device.</p>
+    <div class="set-row">
+      <div class="set-field">
+        <label for="setLight">Light squares</label>
+        <input type="color" id="setLight" value="#ffffff">
+      </div>
+      <div class="set-field">
+        <label for="setDark">Dark squares</label>
+        <input type="color" id="setDark" value="#4b9cd3">
+      </div>
+    </div>
+    <h4>Presets</h4>
+    <div id="setPresets"></div>
+    <div class="set-actions">
+      <button type="button" id="setReset">Reset to Carolina blue / white</button>
+    </div>
+  </dialog>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
